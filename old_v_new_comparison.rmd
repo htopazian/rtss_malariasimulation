@@ -1,0 +1,504 @@
+---
+title: "RTS,S old vs. new model comparison"
+author: "Hillary & Giovanni"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    theme: lumen
+    highlight: tango
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+  
+```{r setup, message=FALSE}
+# packages
+library(tidyverse)
+library(fuzzyjoin)
+library(cowplot)
+library(plotly)
+library(kableExtra)
+library(malariasimulation)
+
+# remotes::install_github('mrc-ide/malariasimulation@feat/rtss_epi', force=TRUE)
+knitr::opts_knit$set(message=FALSE, warning=FALSE)
+
+```
+
+<br>
+
+Our goal here is to compare model outputs from `malariasimulation` to `MalariaLanchR`. We will test three vaccine schedules: 
+
+ 1. **EPI schedule**: vaccinates children continuously at 6 months, 7.5 months, and 9 months, with a booster dose at 27 months 
+ 
+ 2. **Yearly boosters**: mass vaccinates children aged 5-17 months in the 3 months preceding the high transmission season, with subsequent booster doses 12 and 24 months after dose 3
+ 
+ 3. **Hybrid model**: vaccinates children on the EPI schedule for the first 3 doses, then gives 2 subsequent booster doses in the month preceding the high transmission season for the next 2 years
+ 
+<br>
+
+# Parameterize malariasimulation
+
+We will start by setting up a basic model in `malariasimulation` and plotting clinical incidence over 10 years with an equilibrium EIR of 10. 
+
+```{r parameterize, fig.height = 3, warning=FALSE, message=FALSE}
+year <- 365
+month <- year/12
+warmup <- 4 * year
+sim_length <- 3 * year
+human_population <- 100000
+starting_EIR <- 10
+
+# set parameters
+# for seasonality, I am assuming that g0 = a0, g=a, and h=b)
+simparams <- get_parameters(list(
+    human_population = human_population,
+    model_seasonality = TRUE, # 
+    g0 = 0.284596, # highly seasonal
+    g = c(-0.317878, -0.0017527, 0.116455),
+    h = c(-0.331361, 0.293128, -0.0617547),
+    incidence_rendering_min_ages = 0,
+    incidence_rendering_max_ages = 5 * year
+  )
+)
+
+# set ACT: 45% coverage of artemisinin-based combination therapy (ACT) treatment with 95% efficacy
+simparams <- set_drugs(simparams,  list(AL_params, DHA_PQP_params))
+simparams <- set_clinical_treatment(simparams, 1, c(1), c(0.45))
+# set_clinical_treatment(parameters, drug, timesteps for coverage change, coverages)
+
+# set model at equilibrium
+simparams <- set_equilibrium(simparams, starting_EIR)
+
+# run simulation
+output <- run_simulation(warmup + sim_length, simparams)
+
+# average EIRs per year after introducing seasonality
+output %>% mutate(year = ceiling(timestep/365)) %>% group_by(year) %>% summarize(average_eir=mean(EIR)*365/human_population) %>% 
+ kbl(escape = F, align = "c") %>%
+ kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
+
+# plot
+ggplot(output) + 
+  geom_line(aes(x=timestep,y=inc_0_1825)) + 
+  labs(title="Equilibrium model: EIR = 10, highly seasonal setting",
+       x="Timesteps (days)",
+       y="Clinical incidence (0-5 years)") + 
+  theme_classic()
+  
+```
+
+From the plot, we can see seasonality fluctuating over the year. We also can check the average EIRs per year after introducing seasonality. The first year is off, and we will run 4 years of warm-up at equilibrium before introducing vaccinations to make sure.
+
+<br>
+
+# Link Pf prev 2-10 to EIR
+
+`MalariaLanchR` accepts PfPR<sub>2-10</sub> values as inputs to set the model at an equilibrium value. But `malariasimulation` only accepts EIR value inputs using the function `set_equilibrium()`. We will use a range of `malariaEquilibrium` outputs to back link PfPR<sub>2-10</sub> values to EIR outputs using `fuzzyjoin`.
+
+``` {r prevmatch}
+# create vector of eirs
+eir <- seq(from = .1, to = 40, by=.1)
+eq_params <- malariaEquilibrium::load_parameter_set("Jamie_parameters.rds")
+
+# calculate prevalence between 2:10 for a bunch of EIRs
+prev <- vapply(
+  eir,
+  function(eir) {
+    eq <- malariaEquilibrium::human_equilibrium(
+      eir,
+      ft=0,
+      p=eq_params,
+      age=0:100
+    )
+    sum(eq$states[2:10, 'pos_M']) / sum(eq$states[2:10, 'prop'])
+  },
+  numeric(1)
+)
+
+prevmatch <- as_tibble(cbind(eir,prev))
+
+# plot
+ggplot(prevmatch) + 
+  geom_line(aes(x=eir, y=prev), size=1, color="#619CFF") + theme_classic()
+
+# Pre-intervention baseline PfPR2-10 ranging between 10%-60% in 10% increments. 
+PfPR <- as_tibble_col(c(seq(.1,.6,.1)), column_name="pfpr")
+
+match <- PfPR %>%
+  fuzzyjoin::difference_left_join(prevmatch, by=c("pfpr"="prev"), 
+    max_dist=1, distance_col="dist") %>%
+  group_by(pfpr) %>% slice_min(dist)
+
+match %>% 
+ kbl(escape = F, align = "c") %>%
+ kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
+
+```
+
+Our EIR values are 0.9, 2.5, 5, 9.2, 16.3, and 29.7.
+
+<br>
+
+# RTS,S
+
+## No vaccinations (comparison group)
+
+First, we will set up our seasonal models to run with no RTS,S intervention. We will use these outputs as a comparison group.
+
+```{r comparison, message=FALSE}
+# highly seasonal parameters
+high_seas <- get_parameters(list(
+    human_population = human_population,
+    model_seasonality = TRUE, 
+    g0 = 0.284596, 
+    g = c(-0.317878, -0.0017527, 0.116455),
+    h = c(-0.331361, 0.293128, -0.0617547),
+    incidence_rendering_min_ages = 0,
+    incidence_rendering_max_ages = 5 * year))
+
+# seasonal parameters
+low_seas <- get_parameters(list(
+    human_population = human_population,
+    model_seasonality = TRUE, 
+    g0 = 0.285505, 
+    g = c(-0.325352, -0.0109352, 0.0779865),
+    h = c(-0.132815, 0.104675, -0.013919),
+    incidence_rendering_min_ages = 0,
+    incidence_rendering_max_ages = 5 * year))
+
+# creating function for setting equilibrium, treatment, running sim
+runsim <- function(starting_EIR){
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, timestep=timestep-warmup) %>%
+    filter(timestep > 0)
+}
+
+# eirs to loop through model
+eir <- match$eir
+
+params <- high_seas
+output_highseas <- map_dfr(c(eir), runsim)
+
+params <- low_seas
+output_lowseas <- map_dfr(c(eir), runsim)
+
+# output data
+comparison <- output_highseas %>% 
+  mutate(season="highly seasonal") %>% 
+  rbind(output_lowseas %>% 
+  mutate(season="seasonal")) %>% 
+  mutate(model="comparison") %>%
+  dplyr::select(timestep,eir,inc_0_1825,season,model)
+
+# plotting function 
+plotfun <- function(data,title){
+  data %>% 
+  mutate(month=floor(timestep/(365/12))) %>%
+  group_by(eir,month) %>%
+  summarize(inc_month=sum(inc_0_1825, na.rm=T)) %>%
+  left_join(match, by="eir") %>%
+ggplot() + 
+  geom_line(aes(x=month, y=inc_month, color=as_factor(pfpr))) + 
+  labs(title=title,
+       x="Timesteps (month)",
+       y="Monthly clinical incidence \n(0-5 years)",
+       color=expression(PfPR[2-10])) + 
+  scale_y_continuous(limits=c(0,1.7),breaks=c(0,0.5,1,1.5)) +
+  theme_classic()
+}
+
+# plot
+A <- plotfun(output_highseas,"Comparison model, highly seasonal")
+B <- plotfun(output_lowseas,"Comparison model, seasonal")
+cowplot::plot_grid(A,B,ncol=1)  
+
+```
+
+<br>
+
+## EPI
+
+In real-life, the EPI schedule vaccinates children at 6 months, 7.5 months, and 9 months, with a booster dose at 27 months. Updated changes to `malariasimulation` allow us to track individual children to vaccinate them immediately as they reach these ages. But in reality, only the timing of the last dose matters, as vaccine efficacy begins with dose 3 in our model. 
+
+```{r epi, message=FALSE}
+params <- high_seas
+params$rtss_doses <- round(c(0,1.5*month,3*month))
+
+# RTS,S strategy
+params <- set_rtss_epi(
+  params,
+  start = warmup,
+  end = warmup + sim_length,
+  coverage = 0.9,
+  age = 6*month,
+  min_wait = 0,
+  boosters = c(18*month, 30*month),
+  booster_coverage = rep(.80, 2),
+  seasonal_boosters = FALSE
+)
+
+# loop through model
+output_highseas <- map_dfr(c(eir), runsim)
+
+params <- low_seas
+params$rtss_doses <- round(c(0,1.5*month,3*month))
+
+params <- set_rtss_epi(
+  params,
+  start = warmup,
+  end = warmup + sim_length,
+  coverage = 0.9,
+  age = 6*month,
+  min_wait = 0,
+  boosters = c(18*month, 30*month),
+  booster_coverage = rep(.80, 2),
+  seasonal_boosters = FALSE
+)
+
+output_lowseas <- map_dfr(c(eir), runsim)
+
+# output data
+EPI <- output_highseas %>% 
+  mutate(season="highly seasonal") %>% 
+  rbind(output_lowseas %>% 
+  mutate(season="seasonal")) %>% 
+  mutate(model="EPI") %>%
+  dplyr::select(timestep,eir,inc_0_1825,season,model,
+                n_rtss_epi_dose_1:n_rtss_epi_booster_2)
+
+# plot
+A <- plotfun(output_highseas,"EPI model, highly seasonal")
+B <- plotfun(output_lowseas,"EPI model, seasonal")
+cowplot::plot_grid(A,B,ncol=1)  
+```
+
+<br>
+
+## Seasonal + booster
+
+Three doses are delivered to children aged 5-17 months in the 3 months preceding the high transmission season, with subsequent doses 12 and 24 months after dose 3. Blue dashed lines indicate the yearly timing of RTS,S dose 3.
+
+```{r yearly boost, message=FALSE}
+# calculate offset for the peak mosquito season
+params <- high_seas
+params$rtss_doses <- round(c(0,1*month,2*month))
+
+peak <- peak_season_offset(params)
+first <- round(warmup + (peak - month*4), 0)
+timesteps <- c(first, first+year, first+2*year)
+boosters <- c(14*month, 26*month)
+
+# RTS,S strategy
+params <- set_mass_rtss(
+  params,
+  timesteps = timesteps, 
+  coverages = rep(.90, 3),
+  min_ages = c(5*month),
+  max_ages = c(17*month),
+  min_wait = 0,
+  boosters = boosters,
+  booster_coverage = rep(.80, 2)
+)
+
+# loop through model
+output_highseas <- map_dfr(c(eir), runsim)
+A <- plotfun(output_highseas,"Seasonal boosts model, highly seasonal") + 
+  geom_vline(xintercept=(timesteps-warmup+month*2)/month,lty=2,color="skyblue") 
+
+params <- low_seas
+params$rtss_doses <- round(c(0,1*month,2*month))
+
+peak <- peak_season_offset(params)
+first <- round(warmup + (peak - month*6), 0)
+timesteps <- c(first, first+year, first+2*year)
+boosters <- c(14*month, 26*month)
+
+params <- set_mass_rtss(
+  params,
+  timesteps = timesteps, 
+  coverages = rep(.90, 3),
+  min_ages = c(5*month),
+  max_ages = c(17*month),
+  min_wait = 0,
+  boosters = boosters,
+  booster_coverage = rep(.80, 2)
+)
+
+output_lowseas <- map_dfr(c(eir), runsim)
+
+# output data
+seas_boost <- output_highseas %>% 
+  mutate(season="highly seasonal") %>% 
+  rbind(output_lowseas %>% 
+  mutate(season="seasonal")) %>% 
+  mutate(model="seasonal booster") %>%
+  dplyr::select(timestep,eir,inc_0_1825,season,model,
+                n_rtss_mass_dose_1:n_rtss_mass_booster_2)
+
+# plot
+B <- plotfun(output_lowseas,"Seasonal boosts model, seasonal") + 
+ geom_vline(xintercept=(timesteps-warmup+month*2)/month,lty=2,color="skyblue") 
+
+cowplot::plot_grid(A,B,ncol=1) 
+
+```
+
+<br>
+
+## Hybrid
+
+Children are vaccinated through the EPI schedule at 6, 7.5, and 9 months, with boosters given out just before the high transmission season each year for 2 years following vaccination. Children must wait a minimum of 3 months after their third dose before receiving a booster dose. Blue dashed lines indicate the yearly timing of RTS,S booster doses.
+
+```{r hybrid, message=FALSE}
+params <- high_seas
+params$rtss_doses <- round(c(0,1.5*month,3*month))
+peak <- peak_season_offset(params)
+first <- round(warmup + (peak - month*4), 0)
+timesteps <- c(first, first+year, first+2*year)
+
+# RTS,S strategy
+params <- set_rtss_epi(
+  params,
+  start = warmup,
+  end = warmup + sim_length,
+  coverage = 0.9,
+  age = 6*month,
+  min_wait = 3*month,
+  boosters = round(peak - month*4 + 2*month) + c(0, year),
+  booster_coverage = rep(.80, 2),
+  seasonal_boosters = TRUE
+)
+
+# loop through model
+output_highseas <- map_dfr(c(eir), runsim)
+A <- plotfun(output_highseas,"Hybrid model, highly seasonal") + 
+  geom_vline(xintercept=(timesteps-warmup+month*2)/month,lty=2,color="skyblue") 
+
+params <- low_seas
+params$rtss_doses <- round(c(0,1.5*month,3*month))
+peak <- peak_season_offset(params)
+first <- round(warmup + (peak - month*6), 0)
+timesteps <- c(first, first+year, first+2*year)
+
+params <- set_rtss_epi(
+  params,
+  start = warmup,
+  end = warmup + sim_length,
+  coverage = 0.9,
+  age = 6*month,
+  min_wait = 3*month,
+  boosters = round(peak - month*6 + 2*month) + c(0, year),
+  booster_coverage = rep(.80, 2),
+  seasonal_boosters = TRUE
+)
+
+output_lowseas <- map_dfr(c(eir), runsim)
+
+# output data
+hybrid <- output_highseas %>% 
+  mutate(season="highly seasonal") %>% 
+  rbind(output_lowseas %>% 
+  mutate(season="seasonal")) %>% 
+  mutate(model="hybrid") %>%
+  dplyr::select(timestep,eir,inc_0_1825,season,model,
+                n_rtss_epi_dose_1:n_rtss_epi_booster_2)
+
+# plot
+B <- plotfun(output_lowseas,"Hybrid model, seasonal") + 
+ geom_vline(xintercept=(timesteps-warmup+month*2)/month,lty=2,color="skyblue") 
+cowplot::plot_grid(A,B,ncol=1)  
+```
+
+<br>
+
+# Outputs
+
+Here we are plotting the impact of vaccination schedules on clinical malaria cases in children 0-5 years: cumulative clinical cases averted over a 3-year period in our population of 100,000 people.
+
+```{r outputs, message=FALSE}
+output <- bind_rows(comparison, EPI, seas_boost, hybrid) %>%
+  mutate(month=floor(timestep/(365/12))) %>%
+  group_by(model,season,eir,month) %>%
+  mutate(inc_month=sum(inc_0_1825, na.rm=T)) %>%
+  arrange(model,season,eir,month) %>%
+  left_join(match, by="eir") 
+
+control <- output %>% filter(model=="comparison") %>%
+ungroup() %>% dplyr::select(season,month,pfpr,inc_month) %>%
+rename(comparison_inc=inc_month)
+
+output2  <- output %>% filter(model!="comparison") %>%
+  left_join(control, by=c("season","month","pfpr")) %>%
+  mutate(diff=comparison_inc-inc_month,
+         model = factor(model, levels=c("EPI", "seasonal booster", "hybrid"))) %>%
+  ungroup() %>% group_by(model,season,pfpr) %>%
+  summarize(averted=sum(diff)*human_population,.groups="keep")
+
+A <- output2 %>% filter(season=="highly seasonal") %>%
+  ggplot() + 
+  geom_col(aes(x=pfpr,y=averted,fill=model),position=position_dodge()) + 
+  labs(title="Highly seasonal",
+       x=expression(PfPR[2-10]),
+       y="Cumulative cases averted",
+       fill="strategy") + 
+  theme_classic() 
+
+B <- output2 %>% filter(season=="seasonal") %>%
+  ggplot() + 
+  geom_col(aes(x=pfpr,y=averted,fill=model),position=position_dodge()) + 
+  labs(title="Seasonal",
+       x=expression(PfPR[2-10]),
+       y="Cumulative cases averted",
+       fill="strategy") + 
+  theme_classic()
+
+cowplot::plot_grid(A,B,ncol=1)  
+
+```
+
+<br> 
+
+Now we will plot the number of doses given out under each strategy.
+
+```{r number of doses}
+output2 <- output %>% 
+  pivot_longer(cols=n_rtss_epi_dose_1:n_rtss_mass_booster_2, names_to="dose", values_to="distribution") %>%
+  mutate(dose = gsub("n_rtss_epi_", "", dose),
+         dose = gsub("n_rtss_mass_", "", dose),
+         dose = gsub("_", " ", dose),
+         dose = factor(dose, levels=c("dose 1", "dose 2", "dose 3", "booster 1", "booster 2"))) %>%
+  filter(!is.na(distribution) & eir==0.9) %>%
+  group_by(model,season,dose) %>%
+  mutate(cumdose=cumsum(distribution)) 
+
+maxdose <- output2 %>% filter(dose=="dose 1") %>% ungroup() %>%  summarize(max(cumdose)) %>% as.numeric()
+
+plotfunc <- function(seasons,models){
+  output2 %>% filter(season==seasons & model==models & eir==0.9) %>%
+  ggplot() + 
+  geom_line(aes(x=month,y=cumdose,color=dose)) + 
+  labs(title=paste(seasons, "-", models),
+       x="Month",
+       y="Number of doses",
+       color="") + 
+  scale_y_continuous(limits = c(0,maxdose)) +
+  theme_classic() 
+}
+
+A <- plotfunc("highly seasonal","EPI")
+B <- plotfunc("seasonal","EPI")
+C <- plotfunc("highly seasonal","seasonal booster")
+D <- plotfunc("seasonal","seasonal booster")
+E <- plotfunc("highly seasonal","hybrid")
+F <- plotfunc("seasonal","hybrid")
+
+cowplot::plot_grid(A,B,C,D,E,F, nrow=3, ncol=2)  
+
+```
+
