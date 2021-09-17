@@ -1,0 +1,230 @@
+# plotting --------------------------------------------------------------------
+plotfun <- function(data,model){
+  data %>% 
+    filter(model==model) %>%
+    mutate(month=floor(timestep/(365/12))) %>%
+    group_by(eir,month) %>%
+    summarize(inc_month=sum(n_inc_0_36500, na.rm=T)/n_0_36500) %>%
+    left_join(match, by="eir") %>%
+    
+    ggplot() + 
+    geom_line(aes(x=month, y=inc_month, color=as_factor(pfpr))) + 
+    labs(x="Timesteps (month)",
+         y="Monthly \nclinical incidence \n(0-5 years)",
+         color=expression(PfPR[2-10]),
+         title=model) + 
+    scale_y_continuous(limits=c(0,1.7),breaks=c(0,0.5,1,1.5)) +
+    theme_classic()
+}
+
+# no intervention -------------------------------------------------------------
+runsim_none <- function(params, starting_EIR, warmup, sim_length, season){
+  year <- 365
+  month <- year/12
+  
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/HPC/none_',season,starting_EIR,'.rds'))
+}
+
+# EPI -------------------------------------------------------------------------
+runsim_epi <- function(params, starting_EIR, warmup, sim_length, season){
+  year <- 365
+  month <- year/12
+  
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  params$rtss_doses <- round(c(0,1.5*month,3*month))
+  boosters <- round(c(12*month, 24*month))
+  
+  params <- set_rtss_epi(
+    params,
+    start = warmup, 
+    end = warmup + sim_length,
+    coverage = 0.8,
+    age = round(6*month),
+    min_wait = 0,
+    boosters = boosters,
+    booster_coverage = rep(.80, 2),
+    seasonal_boosters = FALSE)
+  
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/HPC/EPIalone_',season,starting_EIR,'.rds'))
+}
+
+# SV -------------------------------------------------------------------------
+runsim_SV <- function(params, starting_EIR, warmup, sim_length, season, boosters, booster_coverage, rtss_cs_boost, name){
+  year <- 365
+  month <- year/12
+  
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  peak <- peak_season_offset(params)
+  first <- round(warmup + (peak - month*4), 0)
+  timesteps <- c(first, first+seq(1:14)*year)
+  params$rtss_doses <- round(c(0,1*month,2*month))
+  params$rtss_cs_boost <- c(rtss_cs_boost, 0.35)
+  
+  params <- set_mass_rtss(
+    params,
+    timesteps = timesteps,
+    coverages = rep(0.8,length(timesteps)),
+    min_ages = round(5*month),
+    max_ages = round(17*month),
+    min_wait = 0,
+    boosters = as.vector(unlist(boosters)),
+    booster_coverage = as.vector(unlist(booster_coverage)))
+  
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/HPC/',name,season,starting_EIR,'.rds'))
+}
+
+# SMC -------------------------------------------------------------------------
+runsim_SMC <- function(params, starting_EIR, warmup, sim_length, season, shape, scale, name){
+  year <- 365
+  month <- year/12
+  
+  params <- set_drugs(params, list(AL_params, SP_AQ_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  peak <- peak_season_offset(params)
+  first <- round(warmup + (peak - month*2), 0)
+  timesteps <- c(first, first+seq(1:14)*year)
+  
+  params <- set_smc(
+    params,
+    drug = 2,
+    timesteps = timesteps, 
+    coverages = rep(0.75,length(timesteps)),
+    min_age = round(5*month),
+    max_age = round(17*month))
+  
+  params$drug_prophylaxis_shape <- c(11.3, shape)
+  params$drug_prophylaxis_scale <- c(10.6, scale) 
+  
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/HPC/',name,season,starting_EIR,'.rds'))
+}
+
+# SMC + EPI -------------------------------------------------------------------
+runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shape, scale, name){
+  year <- 365
+  month <- year/12
+  
+  params <- set_drugs(params, list(AL_params, SP_AQ_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  peak <- peak_season_offset(params)
+  first <- round(warmup + (peak - month*2), 0)
+  timesteps <- c(first, first+seq(1:14)*year)
+  
+  params <- set_smc(
+    params,
+    drug = 2,
+    timesteps = timesteps, 
+    coverages = rep(0.75,length(timesteps)),
+    min_age = round(5*month),
+    max_age = round(17*month))
+  
+  params$drug_prophylaxis_shape <- c(11.3, shape)
+  params$drug_prophylaxis_scale <- c(10.6, scale)
+  
+  params$rtss_doses <- round(c(0,1.5*month,3*month))
+  boosters <- round(c(12*month, 24*month))
+  
+  params <- set_rtss_epi(
+    params,
+    start = warmup, 
+    end = warmup + sim_length,
+    coverage = 0.8,
+    age = round(6*month),
+    min_wait = 0,
+    boosters = boosters,
+    booster_coverage = rep(.80, 2),
+    seasonal_boosters = FALSE)
+  
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/HPC/',name,season,starting_EIR,'.rds'))
+}
+
+# SMC + SV --------------------------------------------------------------------
+runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape, scale, boosters, booster_coverage, rtss_cs_boost, name){
+  year <- 365
+  month <- year/12
+  
+  params <- set_drugs(params, list(AL_params, SP_AQ_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  params$drug_prophylaxis_shape <- c(11.3, shape)
+  params$drug_prophylaxis_scale <- c(10.6, scale)   
+  
+  peak <- peak_season_offset(params)
+  first <- round(warmup + (peak - month*2), 0)
+  timesteps <- c(first, first+seq(1:14)*year)
+  
+  params <- set_smc(
+    params,
+    drug = 2,
+    timesteps = timesteps, 
+    coverages = rep(0.75,length(timesteps)),
+    min_age = round(5*month),
+    max_age = round(17*month))
+  
+  peak <- peak_season_offset(params)
+  first <- round(warmup + (peak - month*4), 0)
+  timesteps <- c(first, first+seq(1:14)*year)
+  params$rtss_doses <- round(c(0,1*month,2*month))
+  params$rtss_cs_boost <- c(rtss_cs_boost, 0.35)
+  
+  params <- set_mass_rtss(
+    params,
+    timesteps = timesteps,
+    coverages = rep(0.8,length(timesteps)),
+    min_ages = round(5*month),
+    max_ages = round(17*month),
+    min_wait = 0,
+    boosters = as.vector(unlist(boosters)),
+    booster_coverage = as.vector(unlist(booster_coverage)))
+  
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/HPC/',name,season,starting_EIR,'.rds'))
+}
