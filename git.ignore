@@ -1,0 +1,6 @@
+.RData
+.rhistory
+.Rproj.user
+*.Rproj
+.DS_Store
+/build/
