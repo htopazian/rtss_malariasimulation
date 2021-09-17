@@ -20,6 +20,7 @@ library(cowplot)
 library(plotly)
 library(kableExtra)
 library(malariasimulation)
+
 library(patchwork)
 library(scales)
 library(LaCroixColoR)
@@ -28,77 +29,51 @@ library(LaCroixColoR)
 # devtools::install_github('johannesbjork/LaCroixColoR')
 knitr::opts_knit$set(message=FALSE, warning=FALSE)
 
-source('./1_functions.R')
-
 ```
 
 <br>
 
-Our goal here is to compare model outputs from `malariasimulation` to `MalariaLanchR`. We will test three vaccine schedules: 
+# Set-up
 
- 1. **EPI schedule**: vaccinates children continuously at 6 months, 7.5 months, and 9 months, with a booster dose at 27 months 
- 
- 2. **Yearly boosters**: mass vaccinates children aged 5-17 months in the 3 months preceding the high transmission season, with subsequent booster doses 12 and 24 months after dose 3
- 
- 3. **Hybrid model**: vaccinates children on the EPI schedule for the first 3 doses, then gives 2 subsequent booster doses in the month preceding the high transmission season for the next 2 years
- 
-<br>
+Our goal here is to compare model outputs from `malariasimulation` to `MalariaLanchR`, and to replicate Hayley's findings from her report.  
 
-# Parameterize malariasimulation
+I have checked - 
 
-We will start by setting up a basic model in `malariasimulation` and plotting clinical incidence over 10 years with an equilibrium EIR of 10. 
-
-```{r parameterize, fig.height = 3, warning=FALSE, message=FALSE}
-year <- 365
-month <- year/12
-warmup <- 4 * year
-sim_length <- 3 * year
-human_population <- 1000
-starting_EIR <- 10
-
-# set parameters
-# for seasonality, I am assuming that g0 = a0, g=a, and h=b)
-simparams <- get_parameters(list(
-    human_population = human_population,
-    model_seasonality = TRUE, # 
-    g0 = 0.284596, # highly seasonal
-    g = c(-0.317878, -0.0017527, 0.116455),
-    h = c(-0.331361, 0.293128, -0.0617547),
-    incidence_rendering_min_ages = 0,
-    incidence_rendering_max_ages = 5 * year
-  )
-)
-
-# set ACT: 45% coverage of artemisinin-based combination therapy (ACT) treatment with 95% efficacy
-simparams <- set_drugs(simparams,  list(AL_params, DHA_PQP_params))
-simparams <- set_clinical_treatment(simparams, 1, c(1), c(0.45))
-# set_clinical_treatment(parameters, drug, timesteps for coverage change, coverages)
-
-# set model at equilibrium
-simparams <- set_equilibrium(simparams, starting_EIR)
-
-# run simulation
-output <- run_simulation(warmup + sim_length, simparams)
-
-# take a look at average EIRs per year after introducing seasonality
-output %>% 
-  mutate(year = ceiling(timestep/365)) %>% 
-  group_by(year) %>% 
-  summarize(average_eir=mean(EIR)*365/human_population) %>% 
-  kbl(escape = F, align = "c") %>%
-  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
-
-# plot
-ggplot(output) + 
-  geom_line(aes(x=timestep,y=n_inc_0_1825/n_0_1825)) + 
-  labs(title="Equilibrium model: EIR = 10, highly seasonal setting",
-       x="Timesteps (days)",
-       y="Clinical incidence (0-5 years)") + 
-  theme_classic()
+  * **Seasonality**
+    + High seasonality - g0 = 0.284596, g = c(-0.317878, -0.0017527, 0.116455), h = c(-0.331361, 0.293128, -0.0617547)
+    + Low seasonality - g0 = 0.285505, g = c(-0.325352, -0.0109352, 0.0779865), h = c(-0.132815, 0.104675, -0.013919)
   
-```
-
-From the plot, we can see seasonality fluctuating over the year. We also can check the average EIRs per year after introducing seasonality. The first 2 years are off, and we will run 4 years of warm-up at equilibrium before introducing vaccinations to make sure.
+  * **Human population** = 100,000
+  
+  * **Warmup** = 4 years for malariasimulation to stabilize at EIR equilibrium
+  
+  * **Simulation length** = 15 years
+  
+  * **Treatment** 
+    + drug = AL
+    + drug_efficacy = 0.95000
+    + drug_rel_c = 0.05094
+    + drug_prophylaxis_shape = 11.30000
+    + drug_prophylaxis_scale = 10.60000
+    + coverage = 0.45
+  
+  * **RTS,S** 
+    + boosters: given 12 months after dose 3 (booster 1) and 24 months after dose 3 (booster 2)
+    + booster coverage = 0.80
+    + boosted antibody mean and stdev = 5.56277, 0.35 
+    + updated antibody mean and stdev = 6.37008, 0.35
+    
+  * **SMC**
+    + drug = SP-AQ
+    + drug_efficacy = 0.75
+    + drug_rel_c = 0.32
+    + drug_prophylaxis_shape = 3.67 (modified from default)
+    + drug_prophylaxis_scale = 41.48 (modified from default)
+    + coverage = 0.45
+    + min-age = 5 months
+    + max-age = 17 months
+    + synergy drug_prophylaxis_shape = 2.955348
+    + synergy drug_prophylaxis_scale = 58.99686
 
 <br>
 
@@ -128,23 +103,14 @@ prev <- vapply(
 
 prevmatch <- as_tibble(cbind(eir,prev))
 
-# plot
-ggplot(prevmatch) + 
-  geom_line(aes(x=eir, y=prev), size=1, color="#619CFF") + theme_classic()
-
 # Pre-intervention baseline PfPR2-10 starting at values 10, 25, 35, 55 
 PfPR <- as_tibble_col(c(.10, .25, .35, .55), column_name="pfpr")
 
 # Hayley's baseline PfPR2-10 range: 3%, 5%, 10%, 15%, 20%, 25%, 35%, 45%, 55%, 65%
-
 match <- PfPR %>%
   fuzzyjoin::difference_left_join(prevmatch, by=c("pfpr"="prev"), 
     max_dist=1, distance_col="dist") %>%
   group_by(pfpr) %>% slice_min(dist)
-
-match %>% 
- kbl(escape = F, align = "c") %>%
- kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
 
 ```
 
@@ -152,45 +118,148 @@ Our EIR values are 0.9, 3.6, 6.8, 21.9.
 
 <br>
 
-# FIGURES
-
-## Figure 1
+# Figure 1
 
 From Hayley's report:
 
 > Figure 1 Cumulative clinical cases averted over 15 years as a function of baseline PfPR2-10  (four settings representative of medium to high transmission intensity are shown) and seasonality A&C) per population and B&D) per 100,000 fully vaccinated children. Coverage is fixed at 80% for the first three doses with a 20% drop off (from the 3rd dose) for the fourth and fifth doses (coverage is the same for the 4th and 5th dose). Fully vaccinated children are defined as those receiving the primary series (first three doses). EPI- is the four-dose age-based strategy, SV 4&5-dose is the seasonal strategy assuming the original vaccine efficacy profile from the Phase 3 RTS,S trials, SV 4&5-dose – updated booster is the seasonal strategy assuming the updated higher efficacy against infection for the 4th and 5th dose based on our validation to the seasonal malaria vaccination Phase 3b clinical trial (Annex 1).  
 
-```{r Figure 1, message=FALSE, warning=FALSE}
-# create facet labels for seasonality
+<br>
+
+## MalariaLaunchR
+
+```{r Figure1MalariaLaunchR, message=FALSE, warning=FALSE, fig.width=12, fig.height=7}
+impact <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/impact_costs_all_ages.RDS')
+
+#-New facet label names for sease variables--
 seas.labs <- c("Highly Seasonal", "Seasonal")
-names(seas.labs) <- c("high_seas", "low_seas")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
 
-fig1dat <- output %>% group_by(pfpr, model, intervention) %>% 
-  summarize(dosecomplete=sum(dose3, na.rm=T),
-            population=mean(n_0_36500, na.rm=T),
-            cases_averted=(sum(base_case, na.rm=T) - sum(n_inc_0_36500, na.rm=T)) * 100000/human_population,
-            cases_averted_per_100000_fvp=(sum(base_case, na.rm=T) - sum(n_inc_0_36500, na.rm=T)) * 100000/dosecomplete,
-            deaths_averted=(sum(base_sdeath, na.rm=T) - sum(severe_deaths, na.rm=T)) * 100000/human_population,
-            deaths_averted_per_100000_fvp=(sum(base_sdeath, na.rm=T) - sum(severe_deaths, na.rm=T)) * 100000/dosecomplete)
+figure_2_pd <- 
+  impact %>%
+  filter(coverage == 0.8, cost_per_dose == 6.52, delivery_cost == 1.62) %>% 
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55))
 
+#-per population---------------------------- 
+ca <-  
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = cases_averted, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("A - Clinical cases averted per 100,000 population") +
+  theme_bw( ) 
+
+
+#-per 100,000 fully vaccinated people----------
+ca_fvp <- 
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = cases_averted_per_100000_fvp, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+ # ylab("Clinical cases averted\n(per 100,000 fully vaccinated children)") +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("B - Clinical cases averted (per 100,000 fully vaccinated children)") +
+  theme_bw( )
+
+#-deaths averted per population--------------
+da <-  
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = deaths_averted, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("C - Deaths averted per 100,000 population") +
+  theme_bw( )
+
+#-deaths averted per 100,000 fully vaccinated-------
+da_fvp <- 
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = deaths_averted_per_100000_fvp, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("D - Deaths averted (per 100,000 fully vaccinated children)") +
+  theme_bw( )
+
+#-combining outputs into single figure
+main_fig <- ca + ca_fvp + da + da_fvp + plot_layout(guides = "collect") & theme(legend.position = "bottom") 
+
+main_fig
+
+# ggsave("combined_averted.png", main_fig, width=12, height = 7)
+
+```
+
+## malariasimulation
+
+```{r Figure1malariasimulation, message=FALSE, warning=FALSE, fig.width=12, fig.height=7}
+output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_averted.rds')
+
+fig1dat <- output %>% 
+  left_join(match %>% select(pfpr, eir)) %>% 
+  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr)) %>%
+  filter(!grepl('SMC',intervention))
+
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("high seasonality", "low seasonality")
 
 # cases averted per 100,000 population  
 Fig1a <-  
   ggplot(fig1dat, aes(x = factor(pfpr * 100), y = cases_averted, fill=intervention)) +
   geom_hline(yintercept = 0) +
   geom_bar(position=position_dodge(), stat="identity",colour="black") +
-  scale_fill_manual(values=lacroix_palette("PeachPear"), 
-                    labels=c("output_epi" = "EPI",
-                             "output_SV4" = "SV 4-dose",
-                             "output_SV5" = "SV 5-dose",
-                             "output_SV4_updated" = "SV 4-dose - updated booster",
-                             "output_SV5_updated" = "SV 5-dose - updated booster")) +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
   labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
        y = " ",
        fill="Vaccination schedule",
        parse=TRUE) + 
   scale_y_continuous(labels = comma) + 
-  facet_wrap(model  ~ ., labeller = labeller(model = seas.labs)) +
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
   xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
   ggtitle("A - Clinical cases averted per 100,000 population") +
   theme_bw() 
@@ -200,18 +269,13 @@ Fig1b <-
   ggplot(fig1dat, aes(x = factor(pfpr * 100), y = cases_averted_per_100000_fvp, fill=intervention)) +
   geom_hline(yintercept = 0) +
   geom_bar(position=position_dodge(), stat="identity",colour="black") +
-  scale_fill_manual(values=lacroix_palette("PeachPear"), 
-                    labels=c("output_epi" = "EPI",
-                             "output_SV4" = "SV 4-dose",
-                             "output_SV5" = "SV 5-dose",
-                             "output_SV4_updated" = "SV 4-dose - updated booster",
-                             "output_SV5_updated" = "SV 5-dose - updated booster")) +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
   labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
        y = " ",
        fill="Vaccination schedule",
        parse=TRUE) + 
   scale_y_continuous(labels = comma) + 
-  facet_wrap(model  ~ ., labeller = labeller(model = seas.labs)) +
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
   xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
   ggtitle("B - Clinical cases averted (per 100,000 fully vaccinated children)") +
   theme_bw()
@@ -221,18 +285,13 @@ Fig1c <-
   ggplot(fig1dat, aes(x = factor(pfpr * 100), y = deaths_averted, fill=intervention)) +
   geom_hline(yintercept = 0) +
   geom_bar(position=position_dodge(), stat="identity",colour="black") +
-  scale_fill_manual(values=lacroix_palette("PeachPear"), 
-                    labels=c("output_epi" = "EPI",
-                             "output_SV4" = "SV 4-dose",
-                             "output_SV5" = "SV 5-dose",
-                             "output_SV4_updated" = "SV 4-dose - updated booster",
-                             "output_SV5_updated" = "SV 5-dose - updated booster")) +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
   labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
        y = " ",
        fill="Vaccination schedule",
        parse=TRUE) + 
   scale_y_continuous(labels = comma) + 
-  facet_wrap(model  ~ ., labeller = labeller(model = seas.labs)) +
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
   xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
   ggtitle("C - Deaths averted per 100,000 population") +
   theme_bw() 
@@ -242,49 +301,51 @@ Fig1d <-
   ggplot(fig1dat, aes(x = factor(pfpr * 100), y = deaths_averted_per_100000_fvp, fill=intervention)) +
   geom_hline(yintercept = 0) +
   geom_bar(position=position_dodge(), stat="identity",colour="black") +
-  scale_fill_manual(values=lacroix_palette("PeachPear"), 
-                    labels=c("output_epi" = "EPI",
-                             "output_SV4" = "SV 4-dose",
-                             "output_SV5" = "SV 5-dose",
-                             "output_SV4_updated" = "SV 4-dose - updated booster",
-                             "output_SV5_updated" = "SV 5-dose - updated booster")) +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
   labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
        y = " ",
        fill="Vaccination schedule",
        parse=TRUE) + 
   scale_y_continuous(labels = comma) + 
-  facet_wrap(model  ~ ., labeller = labeller(model = seas.labs)) +
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
   xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
   ggtitle("D - Deaths averted (per 100,000 fully vaccinated children)") +
   theme_bw()
 
 # combining outputs into single figure
-main_fig <- Fig1a + Fig1b + Fig1bc + Fig1b + plot_layout(guides = "collect") & theme(legend.position = "bottom") 
+main_fig <- Fig1a + Fig1b + Fig1c + Fig1d + plot_layout(guides = "collect") & theme(legend.position = "bottom")
 
-ggsave("./plots/combined_averted.png", main_fig, width=12, height = 7)
+main_fig
+
+# ggsave("./plots/combined_averted.png", main_fig, width=12, height = 7)
 
 ```
 
 <br>
 
-## Figure 2
+# Figure 2
 
 From Hayley's report:
 
 > Figure 2 Cumulative clinical cases and deaths averted over 15 years per population as a function of baseline PfPR2-10 (four representative of medium to high transmission intensity are shown) and seasonality. Coverage is fixed at 80% for the first three doses with a 20% drop off for the fourth and fifth doses. SMC coverage at 75%. EPI- is the four-dose age-based strategy, SV 4&5-dose is the seasonal strategy assuming the original vaccine efficacy profile for the Phase 3 RTS,S trials. SV 4&5-dose – updated booster is the seasonal strategy assuming the updated higher efficacy against infection for the 4th and 5th dose and synergy the increase in the modelled total RTS,S and SMC efficacy against infection above that of each intervention when they are considered alone based on the seasonal malaria vaccination Phase 3b clinical trial.
 
-```{r Figure 1, message=FALSE, warning=FALSE}
+<br>
 
+## MalariaLaunchR
 
+```{r Figure2MalariaLaunchR, message=FALSE, warning=FALSE, fig.width=8, fig.height=5}
+impact <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/impact_costs_all_ages.RDS')
 
+figure_2_pd <- 
+  impact %>%
+  filter(coverage %in% c(0.8,0), cost_per_dose == 6.52, delivery_cost == 1.62) %>% 
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55))
 
+# New facet label names for supp variable
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
 
-
-
-
-figure_2_pd$run <- factor(figure_2_pd$run, levels=c("smc", "epi_smc","srtss_4_dose_original_smc", "srtss_4_dose_update_smc", 
-                                                    "srtss_4_dose_param_mod_smc", "srtss_5_dose_original_smc", 
-                                                    "srtss_5_dose_update_smc", "srtss_5_dose_param_mod_smc"))
+figure_2_pd$run <- factor(figure_2_pd$run, levels=c("smc", "epi_smc","srtss_4_dose_original_smc", "srtss_4_dose_update_smc",  "srtss_4_dose_param_mod_smc", "srtss_5_dose_original_smc", "srtss_5_dose_update_smc", "srtss_5_dose_param_mod_smc"))
 
 # set the colour levels 
 color_vals <- c("smc" = "#f0c9e9",
@@ -305,6 +366,7 @@ labels <- c("epi_smc" = "EPI + SMC",
             "srtss_5_dose_param_mod_smc" = "SV 5-dose synergy + SMC", 
             "smc" = "SMC alone")
 
+#-plot impact averted-----------------------
 ca <-  
     ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = cases_averted, fill=run)) +
     geom_hline(yintercept = 0) +
@@ -317,12 +379,9 @@ ca <-
          parse=TRUE) + 
     scale_y_continuous(labels = comma) + 
     facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
-    #  ylab("Clinical cases averted\n(per 100000 population)") +
     xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
     ggtitle("A - Clinical cases averted per 100,000 population") +
     theme_bw( ) 
-  
-ca
 
 da <-  
     ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = deaths_averted, fill=run)) +
@@ -336,18 +395,101 @@ da <-
          parse=TRUE) + 
     scale_y_continuous(labels = comma) + 
     facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
-    #  ylab("Deaths averted\n(per 100000 population)") +
     xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
     ggtitle("B - Deaths averted per 100,000 population") +
     theme_bw()
-  
-da 
-
+ 
 report_fig <- ca / da + plot_layout(guides = "collect") & theme(legend.position = "right")
   
 report_fig
   
-ggsave("report_fig_main.png", report_fig)#, width=8, height = 5)
+# ggsave("report_fig_main.png", report_fig)#, width=8, height = 5)
+
+```
+
+## malariasimulation
+
+```{r Figure2malariasimulation, message=FALSE, warning=FALSE, fig.width=8, fig.height=5}
+fig2dat <- output %>% 
+  left_join(match %>% select(pfpr, eir)) %>% 
+  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr)) %>%
+  filter(grepl('SMC',intervention))
+
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("high seasonality", "low seasonality")
+
+# set the colour levels 
+color_vals <- c("SMC alone" = "#f0c9e9",
+                "EPI + SMC" = "#FF3200",
+                "SV 4-dose + SMC" = "#E9A17C", 
+                "SV 4-dose - updated booster + SMC" = "#E9E4A6", 
+                "SV 4-dose synergy + SMC" = "#eab06d",
+                "SV 5-dose + SMC" = "#1bb6af", 
+                "SV 5-dose - updated booster + SMC" = "#0076bb",
+                "SV 5-dose synergy + SMC" = "#172869")
+
+fig2dat$intervention <- factor(fig2dat$intervention, levels=c("SMC alone", "EPI + SMC", "SV 4-dose + SMC", "SV 4-dose - updated booster + SMC", "SV 4-dose synergy + SMC", "SV 5-dose + SMC", "SV 5-dose - updated booster + SMC", "SV 5-dose synergy + SMC"))
+
+labels <- c("SMC alone", "EPI + SMC", "SV 4-dose + SMC", "SV 4-dose - updated booster + SMC", "SV 4-dose synergy + SMC", "SV 5-dose + SMC", "SV 5-dose - updated booster + SMC", "SV 5-dose synergy + SMC")
+
+#-plot impact averted-----------------------
+Fig2a <-  
+    ggplot(fig2dat, aes(x = factor(pfpr * 100), y = cases_averted, fill=intervention)) +
+    geom_hline(yintercept = 0) +
+    geom_bar(position=position_dodge(), stat="identity",colour="black") +
+    scale_fill_manual(values = color_vals, 
+                      labels = labels) + 
+    labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+         y = " ",
+         fill="Vaccination schedule",
+         parse=TRUE) + 
+    scale_y_continuous(labels = comma) + 
+    facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+    xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+    ggtitle("A - Clinical cases averted per 100,000 population") +
+    theme_bw( ) 
+
+Fig2b <-  
+    ggplot(fig2dat, aes(x = factor(pfpr * 100), y = deaths_averted, fill=intervention)) +
+    geom_hline(yintercept = 0) +
+    geom_bar(position=position_dodge(), stat="identity",colour="black") +
+    scale_fill_manual(values = color_vals, 
+                      labels = labels) + 
+    labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+         y = " ",
+         fill="Vaccination schedule",
+         parse=TRUE) + 
+    scale_y_continuous(labels = comma) + 
+    facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+    xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+    ggtitle("B - Deaths averted per 100,000 population") +
+    theme_bw()
+ 
+report_fig <- Fig2a / Fig2b + plot_layout(guides = "collect") & theme(legend.position = "right")
+  
+report_fig
+```
+
+<br>
+
+# Table 1
+
+> Table 1. Comparison of cost-effectiveness estimates after 15 years of intervention delivery in regions with a PfPR2-10 between 10-50%. Results are averaged across both seasonality profiles. Results presented for a mean vaccine delivery cost of $1.62 per dose and unit cost of SMC of $1.07 per monthly cycle. 
+
+## MalariaLaunchR
+
+![table1](./plots/table1.png)
+
+## malariasimulation
+
+```{r table1malariasimulation, message=FALSE, warning=FALSE}
+t1dat <- output %>% 
+  left_join(match %>% select(pfpr, eir)) %>% 
+  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr)) %>%
+  filter(grepl('SMC',intervention))
+
+kbl(caption = "Order of prioritization - low burden", escape = F, align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
 
 ```
 
@@ -376,3 +518,6 @@ cost_df <- expand_grid(cost_per_dose = cost_per_dose, delivery_cost = delivery_c
   * Predictions assume that ITN, IRS and access to treatment remain at static levels following vaccine introduction in all scenarios. 
 
   * Events averted are presented as the cumulative number of events averted over a 15-year period following the introduction of vaccine dose 3. Unless otherwise stated events averted are calculated relative to a baseline no-vaccination scenario. 
+
+
+

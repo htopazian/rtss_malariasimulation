@@ -63,6 +63,7 @@ low_seas <- get_parameters(list(
 params <- tibble(params=list(high_seas,low_seas))
 season <- c(rep('high_seas',4), rep('low_seas',4))
 starting_EIR <- c(0.9, 3.6, 6.8, 21.9)
+
 combo <- crossing(params, starting_EIR, warmup, sim_length) %>% cbind(season)
 
 # Run tasks -------------------------------------------------------------------
@@ -240,6 +241,40 @@ dat <- rbindlist(dat_list, fill = TRUE, idcol="file") %>%
                                   grepl('SV4SMCsynergy',file)~"SV 4-dose synergy + SMC",
                                   grepl('SV5SMCsynergy',file)~"SV 5-dose synergy + SMC",
                                   grepl('SMCalone',file)~"SMC alone",
-                                  grepl('none',file)~"none"))
+                                  grepl('none',file)~"none"),
+         season = case_when(model=='high_seas'~"high seasonality",
+                            model=='low_seas'~"low seasonality"))
 
 saveRDS(dat,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds")
+
+summary(dat$n_0_36500)
+
+none <- dat %>% filter(intervention == 'none') %>%
+  mutate(base_case = n_inc_0_36500, 
+         base_n = n_0_36500,
+         base_sdeath = severe_deaths) %>%
+  select(timestep, base_case, base_n, base_sdeath, eir, season)
+
+dat2 <- dat %>% filter(intervention != 'none') %>% left_join(none) %>%
+  rowwise() %>%
+  mutate(dose1 = sum(n_rtss_epi_dose_1,n_rtss_mass_dose_1,na.rm=T),
+         dose2 = sum(n_rtss_epi_dose_2,n_rtss_mass_dose_2,na.rm=T),
+         dose3 = sum(n_rtss_epi_dose_3,n_rtss_mass_dose_3,na.rm=T),
+         dose4 = sum(n_rtss_epi_booster_1,n_rtss_mass_booster_1,na.rm=T),
+         dose5 = sum(n_rtss_epi_booster_2,n_rtss_mass_booster_2,na.rm=T),
+         dosecomplete = dose3) %>%
+  ungroup() %>%
+  group_by(eir, season, intervention) %>%
+  summarize(base_case = sum(base_case, na.rm=T),
+            base_n = mean(base_n, na.rm=T),
+            base_sdeath = sum(base_sdeath, na.rm=T),
+            dosecomplete = sum(dosecomplete, na.rm=T),
+            cases = sum(n_inc_0_36500, na.rm=T),
+            pop = mean(n_0_36500, na.rm=T),
+            deaths = sum(severe_deaths, na.rm=T),
+            cases_averted = (base_case/base_n - cases/pop) * human_population,
+            cases_averted_per_100000_fvp = (base_case/dosecomplete - cases/dosecomplete) * human_population,
+            deaths_averted = (base_sdeath/base_n - deaths/pop) * human_population,
+            deaths_averted_per_100000_fvp = (base_sdeath/dosecomplete - deaths/dosecomplete) * human_population)
+
+saveRDS(dat2,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_averted.rds")
