@@ -22,6 +22,11 @@ runsim_none <- function(params, starting_EIR, warmup, sim_length, season){
   year <- 365
   month <- year/12
   
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
+  
   params <- set_drugs(params, list(AL_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
   params <- set_equilibrium(params, starting_EIR)
@@ -39,11 +44,16 @@ runsim_epi <- function(params, starting_EIR, warmup, sim_length, season){
   year <- 365
   month <- year/12
   
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
+  
   params <- set_drugs(params, list(AL_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
   
   params$rtss_doses <- round(c(0,1.5*month,3*month))
-  boosters <- round(c(12*month, 24*month))
+  boosters <- round(c(18*month))
   
   params <- set_rtss_epi(
     params,
@@ -53,7 +63,7 @@ runsim_epi <- function(params, starting_EIR, warmup, sim_length, season){
     age = round(6*month),
     min_wait = 0,
     boosters = boosters,
-    booster_coverage = rep(.80, 2),
+    booster_coverage = rep(.80, 1),
     seasonal_boosters = FALSE)
   
   params <- set_equilibrium(params, starting_EIR)
@@ -70,6 +80,11 @@ runsim_epi <- function(params, starting_EIR, warmup, sim_length, season){
 runsim_SV <- function(params, starting_EIR, warmup, sim_length, season, boosters, booster_coverage, rtss_cs_boost, name){
   year <- 365
   month <- year/12
+  
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
@@ -105,6 +120,11 @@ runsim_SMC <- function(params, starting_EIR, warmup, sim_length, season, shape, 
   year <- 365
   month <- year/12
   
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
+  
   params <- set_drugs(params, list(AL_params, SP_AQ_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
   
@@ -138,6 +158,11 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
   year <- 365
   month <- year/12
   
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
+  
   params <- set_drugs(params, list(AL_params, SP_AQ_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
   
@@ -157,7 +182,7 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
   params$drug_prophylaxis_scale <- c(10.6, scale)
   
   params$rtss_doses <- round(c(0,1.5*month,3*month))
-  boosters <- round(c(12*month, 24*month))
+  boosters <- round(c(18*month))
   
   params <- set_rtss_epi(
     params,
@@ -167,7 +192,7 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
     age = round(6*month),
     min_wait = 0,
     boosters = boosters,
-    booster_coverage = rep(.80, 2),
+    booster_coverage = rep(.80, 1),
     seasonal_boosters = FALSE)
   
   params <- set_equilibrium(params, starting_EIR)
@@ -184,6 +209,11 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
 runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape, scale, boosters, booster_coverage, rtss_cs_boost, name){
   year <- 365
   month <- year/12
+  
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params, SP_AQ_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))

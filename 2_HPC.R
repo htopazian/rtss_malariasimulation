@@ -20,7 +20,7 @@ ctx <- context::context_save(root,
                              packages = c("tidyverse", "malariasimulation"),
                              package_sources = src)
 
-share <- didehpc::path_mapping("//fi--didef3.dide.ic.ac.uk/malaria", "M:")
+share <- didehpc::path_mapping("malaria", "M:", "//fi--didef3.dide.ic.ac.uk/malaria", "M:")
 config <- didehpc::didehpc_config(shares = share,
                                   use_rrq = FALSE,
                                   cores = 1, 
