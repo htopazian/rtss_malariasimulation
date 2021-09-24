@@ -1,15 +1,14 @@
 # Set-up ----------------------------------------------------------------------
+library(didehpc)
+source('./1_functions.R')
+
+options(didehpc.cluster = "fi--didemrchnb",
+        didehpc.username = "htopazia")
+
 didehpc::didehpc_config() 
 didehpc::web_login()
 
-# library(tidyverse)
-# library(malariasimulation)
-library(didehpc)
-
 root <- "context" 
-
-options(didehpc.cluster = "fi--dideclusthn",
-        didehpc.username = "htopazia")
 
 sources <- c('./1_functions.R')
 
@@ -23,12 +22,11 @@ ctx <- context::context_save(root,
 share <- didehpc::path_mapping("malaria", "M:", "//fi--didef3.dide.ic.ac.uk/malaria", "M:")
 config <- didehpc::didehpc_config(shares = share,
                                   use_rrq = FALSE,
-                                  cores = 1, 
+                                  cores = 20, 
                                   cluster = "fi--didemrchnb",
                                   parallel = FALSE)
 
 obj <- didehpc::queue_didehpc(ctx, config = config)
-
 
 
 # Now set up your job ---------------------------------------------------------
@@ -64,7 +62,8 @@ params <- tibble(params=list(high_seas,low_seas))
 season <- c(rep('high_seas',4), rep('low_seas',4))
 starting_EIR <- c(0.9, 3.6, 6.8, 21.9)
 
-combo <- crossing(params, starting_EIR, warmup, sim_length) %>% cbind(season)
+combo <- crossing(params, starting_EIR, warmup, sim_length) %>% cbind(season) %>%
+  as_tibble()
 
 # Run tasks -------------------------------------------------------------------
 # NO INTERVENTION
@@ -76,7 +75,7 @@ t <- obj$enqueue_bulk(combo, runsim_epi)
 t$status()
 
 # SV4
-boosters <- round(12*month+2)
+boosters <- round(12*month+2*month)
 booster_coverage <- rep(.80, 1)
 rtss_cs_boost <- 5.56277
 name <- 'SV4_'
@@ -87,7 +86,7 @@ t <- obj$enqueue_bulk(combo2, runsim_SV)
 t$status()
 
 # SV4 updated
-boosters <- round(12*month+2)
+boosters <- round(12*month+2*month)
 booster_coverage <- rep(.80, 1)
 rtss_cs_boost <- 6.37008 
 name <- 'SV4updated_'
@@ -98,7 +97,7 @@ t <- obj$enqueue_bulk(combo2, runsim_SV)
 t$status()
 
 # SV5
-boosters <- tibble(boosters = list(round(c(12*month+2, 24*month+2))))
+boosters <- tibble(boosters = list(round(c(12*month+2*month, 24*month+2*month))))
 booster_coverage <- tibble(booster_coverage = list(rep(.80, 2)))
 rtss_cs_boost <- 5.56277 
 name <- 'SV5_'
@@ -109,7 +108,7 @@ t <- obj$enqueue_bulk(combo2, runsim_SV)
 t$status()
 
 # SV5 updated
-boosters <- tibble(boosters = list(round(c(12*month+2, 24*month+2))))
+boosters <- tibble(boosters = list(round(c(12*month+2*month, 24*month+2*month))))
 booster_coverage <- tibble(booster_coverage = list(rep(.80, 2)))
 rtss_cs_boost <- 6.37008
 name <- 'SV5updated_'
@@ -155,7 +154,7 @@ t$status()
 # SV5 + SMC
 shape <- 3.67
 scale <- 41.48
-boosters <- tibble(boosters = list(round(c(12*month+2, 24*month+2))))
+boosters <- tibble(boosters = list(round(c(12*month+2*month, 24*month+2*month))))
 booster_coverage <- tibble(booster_coverage = list(rep(.80, 2)))
 rtss_cs_boost <- 5.56277 
 name <- 'SV5SMC_'
@@ -168,7 +167,7 @@ t$status()
 # SV4 updated + SMC
 shape <- 3.67
 scale <- 41.48
-boosters <- round(12*month+2)
+boosters <- round(12*month+2*month)
 booster_coverage <- rep(.80, 1)
 rtss_cs_boost <- 6.37008
 name <- 'SV4updatedSMC_'
@@ -181,7 +180,7 @@ t$status()
 # SV5 updated + SMC
 shape <- 3.67
 scale <- 41.48
-boosters <- tibble(boosters = list(round(c(12*month+2, 24*month+2))))
+boosters <- tibble(boosters = list(round(c(12*month+2*month, 24*month+2*month))))
 booster_coverage <- tibble(booster_coverage = list(rep(.80, 2)))
 rtss_cs_boost <- 6.37008 
 name <- 'SV5updatedSMC_'
@@ -194,22 +193,22 @@ t$status()
 # SV4 synergy + SMC
 shape <- 2.955348
 scale <- 58.99686
-boosters <- round(12*month+2)
+boosters <- round(12*month+2*month)
 booster_coverage <- rep(.80, 1)
-rtss_cs_boost <- 5.56277
+rtss_cs_boost <- 6.37008
 name <- 'SV4SMCsynergy_'
 
 combo2 <- combo %>% cbind(shape, scale, boosters, booster_coverage, rtss_cs_boost, name)
-
+combo2 <- combo
 t <- obj$enqueue_bulk(combo2, runsim_SMCSV)
 t$status()
 
 # SV5 synergy + SMC
 shape <- 2.955348
 scale <- 58.99686
-boosters <- tibble(boosters = list(round(c(12*month+2, 24*month+2))))
+boosters <- tibble(boosters = list(round(c(12*month+2*month, 24*month+2*month))))
 booster_coverage <- tibble(booster_coverage = list(rep(.80, 2)))
-rtss_cs_boost <- 5.56277 
+rtss_cs_boost <- 6.37008
 name <- 'SV5SMCsynergy_'
 
 combo2 <- combo %>% cbind(shape, scale, boosters, booster_coverage, rtss_cs_boost, name)
@@ -255,13 +254,15 @@ none <- dat %>% filter(intervention == 'none') %>%
          base_sdeath = severe_deaths) %>%
   select(timestep, base_case, base_n, base_sdeath, eir, season)
 
+human_population <- 100000
+
 dat2 <- dat %>% filter(intervention != 'none') %>% left_join(none) %>%
   rowwise() %>%
   mutate(dose1 = sum(n_rtss_epi_dose_1,n_rtss_mass_dose_1,na.rm=T),
          dose2 = sum(n_rtss_epi_dose_2,n_rtss_mass_dose_2,na.rm=T),
          dose3 = sum(n_rtss_epi_dose_3,n_rtss_mass_dose_3,na.rm=T),
          dose4 = sum(n_rtss_epi_booster_1,n_rtss_mass_booster_1,na.rm=T),
-         dose5 = sum(n_rtss_epi_booster_2,n_rtss_mass_booster_2,na.rm=T),
+         dose5 = sum(n_rtss_mass_booster_2,na.rm=T),
          dosecomplete = dose3) %>%
   ungroup() %>%
   group_by(eir, season, intervention) %>%

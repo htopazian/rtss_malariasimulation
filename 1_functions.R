@@ -90,7 +90,7 @@ runsim_SV <- function(params, starting_EIR, warmup, sim_length, season, boosters
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
   
   peak <- peak_season_offset(params)
-  first <- round(warmup + (peak - month*4), 0)
+  first <- ifelse(season=='high_seas', round(warmup+(peak-month*3.5),0), round(warmup+(peak-month*5.5),0))
   timesteps <- c(first, first+seq(1:14)*year)
   params$rtss_doses <- round(c(0,1*month,2*month))
   params$rtss_cs_boost <- c(rtss_cs_boost, 0.35)
@@ -129,7 +129,7 @@ runsim_SMC <- function(params, starting_EIR, warmup, sim_length, season, shape, 
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
   
   peak <- peak_season_offset(params)
-  first <- round(warmup + (peak - month*2), 0)
+  first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
   timesteps <- c(first, first+seq(1:14)*year)
   
   params <- set_smc(
@@ -137,8 +137,8 @@ runsim_SMC <- function(params, starting_EIR, warmup, sim_length, season, shape, 
     drug = 2,
     timesteps = timesteps, 
     coverages = rep(0.75,length(timesteps)),
-    min_age = round(5*month),
-    max_age = round(17*month))
+    min_age = round(0.25*year),
+    max_age = round(5*year))
   
   params$drug_prophylaxis_shape <- c(11.3, shape)
   params$drug_prophylaxis_scale <- c(10.6, scale) 
@@ -167,7 +167,7 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
   
   peak <- peak_season_offset(params)
-  first <- round(warmup + (peak - month*2), 0)
+  first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
   timesteps <- c(first, first+seq(1:14)*year)
   
   params <- set_smc(
@@ -175,8 +175,8 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
     drug = 2,
     timesteps = timesteps, 
     coverages = rep(0.75,length(timesteps)),
-    min_age = round(5*month),
-    max_age = round(17*month))
+    min_age = round(0.25*year),
+    max_age = round(5*year))
   
   params$drug_prophylaxis_shape <- c(11.3, shape)
   params$drug_prophylaxis_scale <- c(10.6, scale)
@@ -222,7 +222,7 @@ runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape
   params$drug_prophylaxis_scale <- c(10.6, scale)   
   
   peak <- peak_season_offset(params)
-  first <- round(warmup + (peak - month*2), 0)
+  first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
   timesteps <- c(first, first+seq(1:14)*year)
   
   params <- set_smc(
@@ -230,11 +230,11 @@ runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape
     drug = 2,
     timesteps = timesteps, 
     coverages = rep(0.75,length(timesteps)),
-    min_age = round(5*month),
-    max_age = round(17*month))
+    min_age = round(0.25*year),
+    max_age = round(5*year))
   
   peak <- peak_season_offset(params)
-  first <- round(warmup + (peak - month*4), 0)
+  first <- ifelse(season=='high_seas', round(warmup+(peak-month*3.5),0), round(warmup+(peak-month*5.5),0))
   timesteps <- c(first, first+seq(1:14)*year)
   params$rtss_doses <- round(c(0,1*month,2*month))
   params$rtss_cs_boost <- c(rtss_cs_boost, 0.35)
@@ -249,6 +249,10 @@ runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape
     boosters = as.vector(unlist(boosters)),
     booster_coverage = as.vector(unlist(booster_coverage)))
   
+  params$rtss_vmax <- if(name %in% c('SV4SMCsynergy_', 'SV5SMCsynergy_')) 0.911028 else .93
+  params$rtss_alpha <- if(name %in% c('SV4SMCsynergy_', 'SV5SMCsynergy_')) 0.75303 else .74
+  params$rtss_beta <- if(name %in% c('SV4SMCsynergy_', 'SV5SMCsynergy_')) 62.8525 else 99.4
+
   params <- set_equilibrium(params, starting_EIR)
   output <- run_simulation(warmup + sim_length, params) %>% 
     mutate(eir=starting_EIR, 

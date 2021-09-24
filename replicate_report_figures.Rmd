@@ -28,7 +28,15 @@ library(LaCroixColoR)
 # devtools::install_github('mrc-ide/malariasimulation@dev', force=TRUE)
 # devtools::install_github('johannesbjork/LaCroixColoR')
 knitr::opts_knit$set(message=FALSE, warning=FALSE)
+```
 
+```{css style settings, echo = FALSE}
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
 ```
 
 <br>
@@ -42,12 +50,15 @@ I have checked -
   * **Seasonality**
     + High seasonality - g0 = 0.284596, g = c(-0.317878, -0.0017527, 0.116455), h = c(-0.331361, 0.293128, -0.0617547)
     + Low seasonality - g0 = 0.285505, g = c(-0.325352, -0.0109352, 0.0779865), h = c(-0.132815, 0.104675, -0.013919)
+    + Seasonal intervention efficacy starts at 4 months for seasonal settings and 6 months for highly seasonal settings.
   
   * **Human population** = 100,000
   
   * **Warmup** = 4 years for malariasimulation to stabilize at EIR equilibrium
   
   * **Simulation length** = 15 years
+  
+  * **Species** = 25% arabiensis, 25% funestus, 50% gambiae. Bednet and indoor parameters checked and match. No info for IRS parameters since intervention is not turned on.
   
   * **Treatment** 
     + drug = AL
@@ -61,19 +72,26 @@ I have checked -
     + boosters: given 12 months after dose 3 (booster 1) and 24 months after dose 3 (booster 2)
     + booster coverage = 0.80
     + boosted antibody mean and stdev = 5.56277, 0.35 
-    + updated antibody mean and stdev = 6.37008, 0.35
-    
+    + updated antibody mean and stdev = 6.37008, 0.35 (and synergy)
+    + for synergy model: rtss_vmax = 0.911028, rtss_alpha = 0.75303, rtss_beta = 62.8525
+   
   * **SMC**
     + drug = SP-AQ
     + drug_efficacy = 0.75
     + drug_rel_c = 0.32
     + drug_prophylaxis_shape = 3.67 (modified from default)
     + drug_prophylaxis_scale = 41.48 (modified from default)
-    + coverage = 0.45
-    + min-age = 5 months
-    + max-age = 17 months
+    + coverage = 0.75
+    + min-age = 3 months
+    + max-age = 5 years
     + synergy drug_prophylaxis_shape = 2.955348
     + synergy drug_prophylaxis_scale = 58.99686
+    + 4 monthly rounds, with timing based on seasonality cuves
+    
+  * **Outcomes**
+    + Unless otherwise stated events averted are calculated relative to a baseline no-vaccination scenario
+    + incidence calculated among individuals 0-100 years
+    + severe malaria enabled
 
 <br>
 
@@ -472,52 +490,171 @@ report_fig
 
 <br>
 
-# Table 1
+# Comparison table
 
-> Table 1. Comparison of cost-effectiveness estimates after 15 years of intervention delivery in regions with a PfPR2-10 between 10-50%. Results are averaged across both seasonality profiles. Results presented for a mean vaccine delivery cost of $1.62 per dose and unit cost of SMC of $1.07 per monthly cycle. 
+Comparing the differences in case and death counts between MalariaLaunchR and malariasimulation outputs. 
 
-## MalariaLaunchR
+  * **case difference** = # cases new model - # cases old model
+  * **case %** = ^ as %
+  * **death difference** = # deaths new model - # cases deaths model
+  * **death %**	= ^ as %
+  * **vacc difference**	= # vaccinated kids new model - # vaccinated kids  old model
+  * **vacc %** = ^ as %
 
-![table1](./plots/table1.png)
+```{r table1malariasimulation, message=FALSE, warning=FALSE, results="asis"}
+A <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/impact_costs_all_ages.RDS') 
 
-## malariasimulation
+B <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/impact_costs_all_ages.RDS')
 
-```{r table1malariasimulation, message=FALSE, warning=FALSE}
-t1dat <- output %>% 
+C <- A %>% full_join(B) %>%
+  filter(coverage %in% c(0,0.8), cost_per_dose == 6.52, delivery_cost == 1.62) %>% 
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>% 
+  mutate(intervention = case_when(run=="epi" ~ "EPI",
+      run=="srtss_4_dose_original" ~ "SV 4-dose",
+      run=="srtss_5_dose_original" ~ "SV 5-dose",
+      run=="srtss_4_dose_update" ~ "SV 4-dose - updated booster",
+      run=="srtss_5_dose_update" ~ "SV 5-dose - updated booster",
+      run=="epi_smc" ~ "EPI + SMC", 
+      run=="srtss_4_dose_original_smc" ~ "SV 4-dose + SMC",
+      run=="srtss_5_dose_original_smc" ~ "SV 5-dose + SMC",
+      run=="srtss_4_dose_update_smc" ~ "SV 4-dose - updated booster + SMC",
+      run=="srtss_5_dose_update_smc" ~ "SV 5-dose - updated booster + SMC", 
+      run=="srtss_4_dose_param_mod_smc" ~ "SV 4-dose synergy + SMC", 
+      run=="srtss_5_dose_param_mod_smc" ~ "SV 5-dose synergy + SMC",
+      run=="smc" ~ "SMC alone")) %>%
+   select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) 
+
+D <- output %>% ungroup() %>%
   left_join(match %>% select(pfpr, eir)) %>% 
   mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr)) %>%
-  filter(grepl('SMC',intervention))
+  mutate(seasonality = 
+           case_when(season=='high seasonality'~'highly_seasonal',
+                     season=='low seasonality'~'seasonal'),
+         number_fvp = dosecomplete) %>%
+  select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) %>%
+  rename(cases2=cases, deaths2=deaths, ca=cases_averted, da=deaths_averted, cafvp=cases_averted_per_100000_fvp, nfvp=number_fvp)
 
-kbl(caption = "Order of prioritization - low burden", escape = F, align = "c") %>%
+tabledat <- C %>% full_join(D)
+
+tablefun <- function(data, season, title){
+  table <- data %>% filter(seasonality==season) %>% 
+  group_by(intervention, pfpr) %>% 
+  summarize(case_diff=cases2-cases,
+            case_per=case_diff/cases*100,
+            deaths_diff=deaths2-deaths,
+            deaths_per=deaths_diff/deaths*100,
+            nv_diff=nfvp-number_fvp,
+            nv_per=nv_diff/number_fvp*100) %>%
+  kbl(col.names = c('intervention','PfPR','case difference', 'case %', 'death difference', 'death %', 'vacc difference', 'vacc %'), digits=2, caption = title, escape = F, align = "c") %>%
   kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
+  
+  print(table)
+}
 
+tablefun(tabledat,'highly_seasonal',"High Seasonality")
+tablefun(tabledat,'seasonal',"Low Seasonality")
 ```
 
 <br>
 
-# Costing 
+# Seasonality
 
-cost_per_dose    <- c(2.69,6.52,12.91) #cost per vaccine - think this should include the cost of wastage etc $2,$5,$10 per dose 
-delivery_cost    <- c(0.96,1.62,2.67)  #EPI delivery costs 
-tx_unit_cost     <- 1.47 
-severe_unit_cost <- 22.41 
-smc_cost         <-  1.07
+Hayley's report says the interventions should be given out 'in the three months preceding the transmission season'. It appears that this is month 4 for seasonal settings and month 6 for highly seasonal settings.  
+                                 
+For `malariasimulation` RTS,S dose #3 efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC is spaced so that it covers the high transmission season. RTS,S is shown in blue and SMC in red below. 
+                      
+<br>
 
-cost_df <- expand_grid(cost_per_dose = cost_per_dose, delivery_cost = delivery_cost)
+## malariasimulation
+
+```{r seasonalitymalariasimulation, message=FALSE, warning=FALSE, fig.width=5, fig.height=4}
+human_population <- 1000
+year <- 365
+month <- year/12
+warmup <- 4*year
+sim_length <- 1*year
+  
+# highly seasonal parameters
+high_seas <- get_parameters(list(
+  human_population = human_population,
+  model_seasonality = TRUE, 
+  g0 = 0.284596, 
+  g = c(-0.317878, -0.0017527, 0.116455),
+  h = c(-0.331361, 0.293128, -0.0617547),
+  incidence_rendering_min_ages = 0,
+  incidence_rendering_max_ages = 100 * year,
+  severe_enabled = T))
+
+# seasonal parameters
+low_seas <- get_parameters(list(
+  human_population = human_population,
+  model_seasonality = TRUE, 
+  g0 = 0.285505, 
+  g = c(-0.325352, -0.0109352, 0.0779865),
+  h = c(-0.132815, 0.104675, -0.013919),
+  incidence_rendering_min_ages = 0,
+  incidence_rendering_max_ages = 100 * year,
+  severe_enabled = T))
+
+# run model
+params <- high_seas
+params <- set_equilibrium(params, 10)
+output_highseas <- run_simulation(warmup + sim_length, params)
+
+params <- low_seas
+params <- set_equilibrium(params, 10)
+output_lowseas <- run_simulation(warmup + sim_length, params)
+
+plotfun <- function(data,title){
+  data %>% 
+  mutate(timestep = timestep - warmup) %>% filter(timestep > 0) %>%
+  mutate(month=floor(timestep/(365/12))) %>%
+  group_by(month) %>%
+  summarize(inc_month=sum(n_inc_0_36500 / n_0_36500, na.rm=T)) %>%
+ggplot() + 
+  geom_line(aes(x=month, y=inc_month)) + 
+  labs(title=title,
+       x="Timesteps (month)",
+       y="Monthly clinical incidence") + 
+  scale_y_continuous(limits=c(0,1.7),breaks=c(0,0.5,1,1.5)) +
+  theme_classic()
+}
+
+first_highseas <- c((peak_season_offset(high_seas)/month) + c(-1.55,-1.5,-0.5,0.5,1.5)) %>% 
+  as_tibble() %>%
+  mutate(color = c(rep('blue',1), rep('red',4)),
+         type = c(rep('RTS,S',1), rep('SMC',4)))
+
+first_lowseas <- c((peak_season_offset(low_seas)/month) + c(-3.5,-1.5,-0.5,0.5,1.5)) %>% 
+  as_tibble() %>%
+  mutate(color = c(rep('blue',1), rep('red',4)),
+         type = c(rep('RTS,S',1), rep('SMC',4)))
+
+A <- plotfun(output_highseas,"highly seasonal") + 
+  geom_vline(xintercept=first_highseas$value, lty=2, color=first_highseas$color) +
+  geom_rect(xmin = 6.094521, xmax = 9.094521 + 1, ymin = 0, ymax = 1, fill="red", alpha = 0.02)
+
+B <- plotfun(output_lowseas,"seasonal") + 
+  geom_vline(xintercept=first_lowseas$value, lty=2, color=first_lowseas$color) +
+  geom_rect(xmin = 6.028767, xmax = 9.028767 + 1, ymin = 0, ymax = 1, fill="red", alpha = 0.02)
+
+A + B 
+```
 
 <br>
 
 # Things to check
 
-  * Paper uses a constant population size and demography based on the life table for Butajira, Ethiopia, with an average life expectancy at birth of 46.6 years. I don't think malaria simulation has the capacity to plug in demographies yet?
+  * MalariaLaunchR uses a constant population size and demography based on the life table for Butajira, Ethiopia, with an average life expectancy at birth of 46.6 years. I don't think malariasimulation has the capacity to plug in demographies yet?
+
+  * Report states that 'events averted are presented as the cumulative number of events averted over a 15-year period following the introduction of vaccine dose 3.' In malariasimulation I am summing events over the entire 15-year simulation length. 
   
-  * Check species distribution
-
-  * Check the timing of seasonal RTS,S doses and SMC - Hayley's report saysthey should be 'in the three months preceding the transmission season'
-
-  * Predictions assume that ITN, IRS and access to treatment remain at static levels following vaccine introduction in all scenarios. 
-
-  * Events averted are presented as the cumulative number of events averted over a 15-year period following the introduction of vaccine dose 3. Unless otherwise stated events averted are calculated relative to a baseline no-vaccination scenario. 
-
-
-
+  * Deaths - re: Hayley parameters for calculating deaths from severe disease are the following. Check with malariasimulation calculations.
+  
+    + tx = 0.52 #treatment coverage run in simulations
+    + scaler = 0.215 #severe case to death modifier
+    + treatment_scaler = 0.5 #treatment modifier
+    + treatment_coverage = 0.52 #coverage
+    + mort = (1-(treatment_scaler * 0)) * scaler * sev)
+    
+  * SMC rounds - Hayley ran 3 rounds, but it was supposed to be 4, she will send an updated rds file
