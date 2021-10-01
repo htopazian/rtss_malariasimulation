@@ -1,5 +1,7 @@
 # Set-up ----------------------------------------------------------------------
 library(didehpc)
+setwd('M:/Hillary/rtss_malariasimulation')
+# remotes::install_github('mrc-ide/malariasimulation@bug/severe', force=T)
 source('./1_functions.R')
 
 options(didehpc.cluster = "fi--didemrchnb",
@@ -12,7 +14,8 @@ root <- "context"
 
 sources <- c('./1_functions.R')
 
-src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
+# src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@bug/severe")
 
 ctx <- context::context_save(root,
                              sources = sources,
@@ -22,7 +25,7 @@ ctx <- context::context_save(root,
 share <- didehpc::path_mapping("malaria", "M:", "//fi--didef3.dide.ic.ac.uk/malaria", "M:")
 config <- didehpc::didehpc_config(shares = share,
                                   use_rrq = FALSE,
-                                  cores = 20, 
+                                  cores = 1, 
                                   cluster = "fi--didemrchnb",
                                   parallel = FALSE)
 
@@ -32,7 +35,7 @@ obj <- didehpc::queue_didehpc(ctx, config = config)
 # Now set up your job ---------------------------------------------------------
 year <- 365
 month <- year/12
-warmup <- 4 * year
+warmup <- 20 * year
 sim_length <- 15 * year
 human_population <- 100000
 
@@ -45,6 +48,12 @@ high_seas <- get_parameters(list(
   h = c(-0.331361, 0.293128, -0.0617547),
   incidence_rendering_min_ages = 0,
   incidence_rendering_max_ages = 100 * year,
+  clinical_incidence_rendering_min_ages = 0,
+  clinical_incidence_rendering_max_ages = 100 * year,
+  severe_incidence_rendering_min_ages = 0,
+  severe_incidence_rendering_max_ages = 100 * year,
+  fvt = 0,
+  v = 0,
   severe_enabled = T))
 
 # seasonal parameters
@@ -56,6 +65,12 @@ low_seas <- get_parameters(list(
   h = c(-0.132815, 0.104675, -0.013919),
   incidence_rendering_min_ages = 0,
   incidence_rendering_max_ages = 100 * year,
+  clinical_incidence_rendering_min_ages = 0,
+  clinical_incidence_rendering_max_ages = 100 * year,
+  severe_incidence_rendering_min_ages = 0,
+  severe_incidence_rendering_max_ages = 100 * year,
+  fvt = 0,
+  v = 0,
   severe_enabled = T))
 
 params <- tibble(params=list(high_seas,low_seas))
@@ -199,7 +214,7 @@ rtss_cs_boost <- 6.37008
 name <- 'SV4SMCsynergy_'
 
 combo2 <- combo %>% cbind(shape, scale, boosters, booster_coverage, rtss_cs_boost, name)
-combo2 <- combo
+
 t <- obj$enqueue_bulk(combo2, runsim_SMCSV)
 t$status()
 
@@ -241,41 +256,46 @@ dat <- rbindlist(dat_list, fill = TRUE, idcol="file") %>%
                                   grepl('SV5SMCsynergy',file)~"SV 5-dose synergy + SMC",
                                   grepl('SMCalone',file)~"SMC alone",
                                   grepl('none',file)~"none"),
-         season = case_when(model=='high_seas'~"high seasonality",
-                            model=='low_seas'~"low seasonality"))
+         season = case_when(model=='high_seas'~"highly_seasonal",
+                            model=='low_seas'~"seasonal"))
 
-saveRDS(dat,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds")
+saveRDS(dat,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_raw.rds")
 
 summary(dat$n_0_36500)
 
-none <- dat %>% filter(intervention == 'none') %>%
-  mutate(base_case = n_inc_0_36500, 
-         base_n = n_0_36500,
-         base_sdeath = severe_deaths) %>%
-  select(timestep, base_case, base_n, base_sdeath, eir, season)
-
-human_population <- 100000
-
-dat2 <- dat %>% filter(intervention != 'none') %>% left_join(none) %>%
+dat2 <- dat %>% 
+  mutate(cases = (n_inc_clinical_0_36500/n_0_36500) * human_population,
+         n = n_0_36500,
+         severe = (n_inc_severe_0_36500/n_0_36500) * human_population,
+         deaths = 0.215 * (n_inc_severe_0_36500/n_0_36500) * human_population) %>% 
   rowwise() %>%
   mutate(dose1 = sum(n_rtss_epi_dose_1,n_rtss_mass_dose_1,na.rm=T),
          dose2 = sum(n_rtss_epi_dose_2,n_rtss_mass_dose_2,na.rm=T),
          dose3 = sum(n_rtss_epi_dose_3,n_rtss_mass_dose_3,na.rm=T),
          dose4 = sum(n_rtss_epi_booster_1,n_rtss_mass_booster_1,na.rm=T),
          dose5 = sum(n_rtss_mass_booster_2,na.rm=T),
-         dosecomplete = dose3) %>%
-  ungroup() %>%
+         dosecomplete = dose3) %>% ungroup()
+
+saveRDS(dat2,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds")
+         
+none <- dat2 %>% filter(intervention == 'none') %>%
+  rename(base_case = cases, 
+         base_n = n_0_36500,
+         base_death = deaths) %>%
+  select(timestep, base_case, base_n, base_death, eir, season)
+
+dat3 <- dat2 %>% filter(intervention != 'none') %>% left_join(none) %>%
   group_by(eir, season, intervention) %>%
   summarize(base_case = sum(base_case, na.rm=T),
-            base_n = mean(base_n, na.rm=T),
-            base_sdeath = sum(base_sdeath, na.rm=T),
+            base_death = sum(base_death, na.rm=T),
             dosecomplete = sum(dosecomplete, na.rm=T),
-            cases = sum(n_inc_0_36500, na.rm=T),
+            cases = sum(cases, na.rm=T),
             pop = mean(n_0_36500, na.rm=T),
-            deaths = sum(severe_deaths, na.rm=T),
-            cases_averted = (base_case/base_n - cases/pop) * human_population,
-            cases_averted_per_100000_fvp = (base_case/dosecomplete - cases/dosecomplete) * human_population,
-            deaths_averted = (base_sdeath/base_n - deaths/pop) * human_population,
-            deaths_averted_per_100000_fvp = (base_sdeath/dosecomplete - deaths/dosecomplete) * human_population)
+            severe = sum(severe, na.rm=T),
+            deaths = sum(deaths, na.rm=T),
+            cases_averted = base_case - cases,
+            cases_averted_per_100000_fvp = (base_case - cases)/dosecomplete * human_population,
+            deaths_averted = base_death - deaths,
+            deaths_averted_per_100000_fvp = (base_death - deaths)/dosecomplete * human_population)
 
-saveRDS(dat2,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_averted.rds")
+saveRDS(dat3,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_averted.rds")
