@@ -664,61 +664,7 @@ scaler = 0.215           #severe case to death modifier
 treatment_scaler = 0.5   #treatment modifier
 treatment_coverage = 0.52#coverage 
 
-baselineA <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/combined_outputs_raw.RDS') %>% 
-  filter(year>0) %>%
-  dplyr::select(-contains("prev_2_10")) %>% 
-  mutate_at(vars(contains("smooth")), as.numeric) %>% 
-  # keep smoothed output and ignore intervention numbers for now
-  dplyr::select(run, pfpr, seasonality, draw, coverage, year, dplyr::contains("smooth")) %>% 
-  #-convert from wide to long format
-  tidyr::pivot_longer(-c(year, run, pfpr, seasonality, draw, coverage), names_to = "var", values_to = "y") %>%
-  #-remove _smooth subscript for neater names
-  dplyr::mutate(var = stringr::str_remove(var, "_smooth")) %>%
-  #-isolate lower and upper age bounds from variable names
-  tidyr::separate(var, into = c("type", "age_lower", "age_upper"), sep = "_", convert = TRUE) %>%
-  #-convert back to wide
-  tidyr::pivot_wider(id_cols = c(run, pfpr, seasonality, draw, coverage, year, age_lower, age_upper),
-                     names_from = type, values_from = y) %>% 
-  #-replace -999 / INF/ NA values in output
-  dplyr::mutate(prev = ifelse(prev == -999, 0, prev),
-                inc = ifelse(inc == -999, 0, inc),
-                inc = ifelse(inc == Inf, 0, inc),
-                sev = ifelse(sev == -999, 0, sev),
-                sev = ifelse(sev == Inf, 0, sev),
-                prop = ifelse(prop == -999, 0, prop)) %>%
-  tidyr::replace_na(
-    list( prev = 0, inc = 0, sev = 0, prop = 0)) %>% 
-  #-mortality rate
-  mutate(mort = (1-(treatment_scaler * 0)) * scaler * sev) %>% 
-  #-convert burden (incidence * proportion aged * population size)
-  #-case load is weighted by proportion in age range in population * total size
-  mutate(cases            = round(inc * prop * population_size), 
-         severe           = round(sev * prop * population_size), 
-         hospitalisations = round(severe * tx), 
-         deaths           = round(mort * prop * population_size)) %>% 
-  #-remove unwanted variables------
-  select(-prev, -inc, -sev, -mort, -prop, -coverage) %>%
-  group_by(run, pfpr, seasonality, year) %>%
-  summarise(cases = sum(cases,na.rm=T),
-            deaths = sum(deaths, na.rm=T),
-            severe = sum(severe, na.rm=T)) %>%
-  filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>%
-  ungroup() %>% mutate(model='MalariaLaunchR')
-
-# malariasimulation
-baselineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds") %>% 
-  mutate(year=ceiling(timestep/365)) %>%
-  rename(seasonality=season) %>%
-  group_by(intervention, eir, seasonality, year) %>%
-  summarize(cases = sum(cases, na.rm=T),
-            severe = sum(severe, na.rm=T),
-            deaths = sum(deaths, na.rm=T),
-            model='malariasimulation') %>%
-  left_join(match %>% select(pfpr, eir)) %>% 
-  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr))
-
 oldmodelprocess <- function(file){readRDS(file) %>% 
-  filter(year>0) %>%
   dplyr::select(-contains("prev_2_10")) %>% 
   mutate_at(vars(contains("smooth")), as.numeric) %>% 
   # keep smoothed output and ignore intervention numbers for now
@@ -730,8 +676,7 @@ oldmodelprocess <- function(file){readRDS(file) %>%
   #-isolate lower and upper age bounds from variable names
   tidyr::separate(var, into = c("type", "age_lower", "age_upper"), sep = "_", convert = TRUE) %>%
   #-convert back to wide
-  tidyr::pivot_wider(id_cols = c(run, pfpr, seasonality, draw, coverage, year, age_lower, age_upper),
-                     names_from = type, values_from = y) %>% 
+  tidyr::pivot_wider(id_cols = c(run, pfpr, seasonality, draw, coverage, year, age_lower, age_upper), names_from = type, values_from = y) %>% 
   #-replace -999 / INF/ NA values in output
   dplyr::mutate(prev = ifelse(prev == -999, 0, prev),
                 inc = ifelse(inc == -999, 0, inc),
@@ -748,19 +693,16 @@ oldmodelprocess <- function(file){readRDS(file) %>%
   mutate(cases            = round(inc * prop * population_size), 
          severe           = round(sev * prop * population_size), 
          hospitalisations = round(severe * tx), 
-         deaths           = round(mort * prop * population_size)) %>% 
-  #-remove unwanted variables------
-  select(-prev, -inc, -sev, -mort, -prop, -coverage) %>%
-  group_by(run, pfpr, seasonality, year) %>%
-  summarise(cases = sum(cases,na.rm=T),
-            deaths = sum(deaths, na.rm=T),
-            severe = sum(severe, na.rm=T)) %>%
-  filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>%
-  ungroup() %>% mutate(model='MalariaLaunchR')
+         deaths           = round(mort * prop * population_size)) %>%
+  filter(year > 0) %>%
+  filter(coverage %in% c(0.8,0)) %>%
+  group_by(run, pfpr, seasonality, coverage, draw, year) %>%
+  summarise(across(cases:deaths, sum)) %>%
+  ungroup() %>% mutate(model='MalariaLaunchR') %>% filter(pfpr %in% c(0.1,0.25,0.35,0.55))
 }
 
 baselineA <- oldmodelprocess('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/combined_outputs_raw.RDS') %>% 
-  rbind(oldmodelprocess('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/combined_outputs_smc.RDS'))
+  rbind(oldmodelprocess('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/combined_outputs_smc.RDS')) %>% distinct()
 
 # malariasimulation
 baselineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds") %>% 
@@ -773,7 +715,6 @@ baselineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Githu
             model='malariasimulation') %>%
   left_join(match %>% select(pfpr, eir)) %>% 
   mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr))
-
 
 data <- baselineA %>% filter(run == "baseline") %>% full_join(baselineB %>% filter(intervention == 'none'))
 
@@ -850,6 +791,134 @@ plotcompare(data, "SV 5-dose synergy + SMC")
 ```
 
 <br>
+
+# Vaccine comparison
+
+Plotting the number of dose 3 vaccines given out (malariasimulation) and the number of fully vaccinated children (new model - includes `dose_scaler` variable).
+
+Hayley is calculating this here: https://github.com/htopazian/seasonal_use_case/blob/main/Part_1/4_post_processing.R#L125-L149. I'm not sure if she is correctly adjusting back to dose 3 for scenarios where children receive 1 booster (EPI and SV 4-dose).
+
+```{r vaccine comparison, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+
+dose_scaler <- 0.266666667 #total doses need to get scaled to number fully vaccinated children (first 3 doses)
+
+vaccineA <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/combined_outputs_raw.RDS') %>% 
+  rbind(readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/combined_outputs_smc.RDS')) %>% distinct() %>% 
+  group_by(run, pfpr, seasonality, draw, coverage) %>% 
+  dplyr::mutate(
+    num_vacc_doses = c(0, diff(num_vacc_doses / 3)),
+    num_trt        = c(0, diff(num_trt /3))) %>% 
+   select(run, pfpr, seasonality, draw, coverage, year, num_vacc_doses,  num_trt) %>%
+  filter(year > 0) %>%
+  filter(coverage %in% c(0.8,0)) %>%
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>%
+  mutate(model='MalariaLaunchR',
+         dose3=num_vacc_doses * dose_scaler) %>%
+  mutate(intervention = case_when(run=="epi" ~ "EPI",
+      run=="srtss_4_dose_original" ~ "SV 4-dose",
+      run=="srtss_5_dose_original" ~ "SV 5-dose",
+      run=="srtss_4_dose_update" ~ "SV 4-dose - updated booster",
+      run=="srtss_5_dose_update" ~ "SV 5-dose - updated booster",
+      run=="epi_smc" ~ "EPI + SMC", 
+      run=="srtss_4_dose_original_smc" ~ "SV 4-dose + SMC",
+      run=="srtss_5_dose_original_smc" ~ "SV 5-dose + SMC",
+      run=="srtss_4_dose_update_smc" ~ "SV 4-dose - updated booster + SMC",
+      run=="srtss_5_dose_update_smc" ~ "SV 5-dose - updated booster + SMC", 
+      run=="srtss_4_dose_param_mod_smc" ~ "SV 4-dose synergy + SMC", 
+      run=="srtss_5_dose_param_mod_smc" ~ "SV 5-dose synergy + SMC",
+      run=="smc" ~ "SMC alone"))
+
+# malariasimulation
+vaccineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds") %>% 
+  mutate(year=ceiling(timestep/365)) %>%
+  rename(seasonality=season) %>%
+  group_by(intervention, eir, seasonality, year) %>%
+  summarize(dose3 = sum(dose3, na.rm=T),
+            model='malariasimulation') %>%
+  left_join(match %>% select(pfpr, eir)) %>% 
+  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr))
+
+# plots
+plotvaccine <- function(data, title){
+ggplot(data=data, aes(x=year, y=dose3, color=factor(pfpr * 100), lty=model)) + 
+  geom_line() + 
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma, limits = c(0,4000), breaks = seq(0,4000,1000)) + 
+  scale_x_continuous(breaks = seq(1,15,1)) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  labs(x='year', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle(title) +
+  theme_classic()
+}
+
+vaxdat <- vaccineA %>% full_join(vaccineB)
+
+plotvaccine(vaxdat %>% filter(intervention == "EPI"), "EPI")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose"), "SV 4-dose")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose"), "SV 5-dose")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose - updated booster"), "SV 4-dose - updated booster")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose - updated booster"), "SV 5-dose - updated booster")
+plotvaccine(vaxdat %>% filter(intervention == "EPI + SMC"), "EPI + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose + SMC"), "SV 4-dose + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose + SMC"), "SV 5-dose + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose - updated booster + SMC"), "SV 4-dose - updated booster + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose - updated booster + SMC"), "SV 5-dose - updated booster + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose synergy + SMC"), "SV 4-dose synergy + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose synergy + SMC"), "SV 5-dose synergy + SMC")
+
+```
+
+<br>
+
+# Age group comparison
+
+`malariaEquilibrium` uses the average age to calculate an exponential demography. This does not match up with the `mlgts::flat_demog` file Hayley used.
+
+```{r agegroup, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+# load mlgts demography file
+load("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/flat_demog.rda")
+
+flat_demog
+
+# get basic properties
+age <- c(0,0.083333,1,seq(5,95,5),200)
+av_age <- 29.9*365
+eta <- 1/av_age # should this be 1/average life expectancy?
+n_age <- length(age)
+age_days <- age*365
+  
+# produce population age distribution using eta, which is defined as 1/average
+# age. The population distribution can be envisioned as an exponential
+# distribution, with mass feeding in from the left due to birth at rate eta,
+# people ageing with rates defined based on the width of the age groups, and
+# mass leaking out of all categories with death rate eta. Total birth and
+# death rates are equal, making the distribution stable.
+prop <- r <- rep(0, n_age)
+for (i in 1:n_age) {
+
+# r[i] can be thought of as the rate of ageing in this age group, i.e.
+# 1/r[i] is the duration of this group
+if (i == n_age) {
+  r[i] <- 0
+} else {
+  age_width <- age_days[i+1] - age_days[i]
+  r[i] <- 1/age_width
+}
+# prop is calculated from the relative flows into vs. out of this age group.
+# For the first age group the flow in is equal to the birth rate (eta). For
+# all subsequent age groups the flow in represents ageing from the previous
+# group. The flow out is always equal to the rate of ageing or death.
+if (i == 1) {
+      prop[i] <- eta/(r[i] + eta)
+} else {
+  prop[i] <- prop[i-1]*r[i-1]/(r[i] + eta)
+  }
+}
+
+cbind(age,r,prop)
+```
 
 # Things to check
 
