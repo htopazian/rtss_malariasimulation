@@ -42,6 +42,7 @@ human_population <- 100000
 # highly seasonal parameters
 high_seas <- get_parameters(list(
   human_population = human_population,
+  #average_age = (1/.040481)*year, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.284596, 
   g = c(-0.317878, -0.0017527, 0.116455),
@@ -59,6 +60,7 @@ high_seas <- get_parameters(list(
 # seasonal parameters
 low_seas <- get_parameters(list(
   human_population = human_population,
+  #average_age = (1/.040481)*year, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.285505, 
   g = c(-0.325352, -0.0109352, 0.0779865),
@@ -235,6 +237,7 @@ t$status()
 # Process data ----------------------------------------------------------------
 # read in files
 require(data.table)
+library(tidyverse)
 
 files <- list.files(path = "M:/Hillary/rtss_malariasimulation/rds/HPC", pattern = "*.rds", full.names = TRUE)
 dat_list <- lapply(files, function (x) data.table(readRDS(x)))

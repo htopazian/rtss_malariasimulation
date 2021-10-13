@@ -130,13 +130,13 @@ runsim_SMC <- function(params, starting_EIR, warmup, sim_length, season, shape, 
   
   peak <- peak_season_offset(params)
   first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
-  timesteps <- c(first, first+seq(1:14)*year)
+  timesteps <- c(seq(0:14)*year + rep(first,15))
   
   params <- set_smc(
     params,
     drug = 2,
-    timesteps = timesteps, 
-    coverages = rep(0.75,length(timesteps)),
+    timesteps = sort(timesteps), 
+    coverages = rep(0.75, length(timesteps)),
     min_age = round(0.25*year),
     max_age = round(5*year))
   
@@ -168,12 +168,12 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
   
   peak <- peak_season_offset(params)
   first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
-  timesteps <- c(first, first+seq(1:14)*year)
+  timesteps <- c(seq(0:14)*year + rep(first,15))
   
   params <- set_smc(
     params,
     drug = 2,
-    timesteps = timesteps, 
+    timesteps = sort(timesteps), 
     coverages = rep(0.75,length(timesteps)),
     min_age = round(0.25*year),
     max_age = round(5*year))
@@ -223,12 +223,12 @@ runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape
   
   peak <- peak_season_offset(params)
   first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
-  timesteps <- c(first, first+seq(1:14)*year)
+  timesteps <- c(seq(0:14)*year + rep(first,15))
   
   params <- set_smc(
     params,
     drug = 2,
-    timesteps = timesteps, 
+    timesteps = sort(timesteps), 
     coverages = rep(0.75,length(timesteps)),
     min_age = round(0.25*year),
     max_age = round(5*year))
