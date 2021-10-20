@@ -51,9 +51,9 @@ I have checked -
   * **Seasonality**
     + High seasonality - g0 = 0.284596, g = c(-0.317878, -0.0017527, 0.116455), h = c(-0.331361, 0.293128, -0.0617547)
     + Low seasonality - g0 = 0.285505, g = c(-0.325352, -0.0109352, 0.0779865), h = c(-0.132815, 0.104675, -0.013919)
-    + Seasonal intervention efficacy starts at 4 months for seasonal settings and 6 months for highly seasonal settings.
+    + seasonal intervention efficacy starts at 4 months for seasonal settings and 6 months for highly seasonal settings.
   
-  * **Human population** = 100,000
+  * **Human population** = 100,000. Average_age = 8453.323.
   
   * **Warmup** = 20 years for malariasimulation to stabilize at EIR equilibrium
   
@@ -90,7 +90,7 @@ I have checked -
     + 4 monthly rounds, with timing based on seasonality cuves
     
   * **Outcomes**
-    + Unless otherwise stated events averted are calculated relative to a baseline no-vaccination scenario
+    + unless otherwise stated events averted are calculated relative to a baseline no-vaccination scenario
     + clinical incidence calculated among individuals 0-100 years
     + severe malaria enabled
     + fvt (reduced probability of death due to treatment) and v (mortality scaling factor from severe disease) set to 0
@@ -100,15 +100,24 @@ I have checked -
 
 # Link Pf prev 2-10 to EIR
 
-`MalariaLanchR` accepts PfPR<sub>2-10</sub> values as inputs to set the model at an equilibrium value. But `malariasimulation` only accepts EIR value inputs using the function `set_equilibrium()`. We will use a range of `malariaEquilibrium` outputs to back link PfPR<sub>2-10</sub> values to EIR outputs using `fuzzyjoin`.
+`MalariaLanchR` accepts PfPR<sub>2-10</sub> values as inputs to set the model at an equilibrium value. But `malariasimulation` only accepts EIR value inputs using the function `set_equilibrium()`. We will use a range of `malariasimulation` outputs to back link PfPR<sub>2-10</sub> values to EIR outputs using `fuzzyjoin`. Separate matching processes must take place for each seasonality setting. Essentially, we set our baseline parameters, and then run multiple simulations at various EIRs using those baseline settings. We then create a best-fit line through these points, and match with PfPR<sub>2-10</sub>. The blue line in the following plots displays results from `malariaEquilibrium`, which end up underestimating the EIRs to be used in the model.
 
 ``` {r prevmatch, message=FALSE, warning=FALSE}
-# create vector of eirs
-eir <- seq(from = .1, to = 40, by=.1)
+# loop over malariasimulation runs
+init_EIR <- c(0.01, 0.1, seq(1,9,1), seq(10, 100, by=5)) # set EIR values
+
+# files ending in 2 are for individual_mosquitoes = F. No number is for individiaul_mosquitoes = T. 
+EIR_prev1 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_high.rds') %>% mutate(season = 'high seasonality')
+
+EIR_prev2 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_low.rds') %>% mutate(season = 'low seasonality')
+
+EIR_prev <- rbind(EIR_prev1, EIR_prev2)
+
+# calculate EIR / prev 2-10 relationship from malariEquilibrium
+eir <- seq(from = .1, to = 100, by=.1)
 eq_params <- malariaEquilibrium::load_parameter_set("Jamie_parameters.rds")
 
-# calculate prevalence between 2:10 for a bunch of EIRs
-prev <- vapply(
+prev <- vapply( # calculate prevalence between 2:10 for a bunch of EIRs
   eir,
   function(eir) {
     eq <- malariaEquilibrium::human_equilibrium(
@@ -124,18 +133,45 @@ prev <- vapply(
 
 prevmatch <- as_tibble(cbind(eir,prev))
 
+colors <- c("malariaEquilibrium" = "blue", "malariasimulation" = "red")
+
+
+p <- ggplot(data=EIR_prev) + 
+  geom_point(aes(x=init_EIR, y=prev), color='black') + 
+  stat_smooth(aes(x=init_EIR, y=prev, color='malariasimulation'), method = 'gam', n=1000) + 
+  geom_line(data=prevmatch, aes(x=eir, y=prev, color = 'malariaEquilibrium')) + 
+  labs(x='initial EIR', y=expression(paste(italic(Pf),"PR"[2-10])), color='model') + 
+  facet_wrap('season', nrow=1) + 
+  scale_color_manual(values = colors) + 
+  theme_classic()
+
+p
+
+# extract points from stat_smooth
+p2 <- ggplot_build(p)
+p2 <- p2$data[[2]]
+
+p2 <- p2 %>% as_tibble() %>% select(x,y,PANEL) %>% rename(init_EIR=x, pred=y, season=PANEL) %>%
+  mutate(season=ifelse(season==1,'high seasonality','low seasonality'))
+
+
 # Pre-intervention baseline PfPR2-10 starting at values 10, 25, 35, 55 
 PfPR <- as_tibble_col(c(.10, .25, .35, .55), column_name="pfpr")
 
-# Hayley's baseline PfPR2-10 range: 3%, 5%, 10%, 15%, 20%, 25%, 35%, 45%, 55%, 65%
+# match via stat_smooth predictions
 match <- PfPR %>%
-  fuzzyjoin::difference_left_join(prevmatch, by=c("pfpr"="prev"), 
-    max_dist=1, distance_col="dist") %>%
-  group_by(pfpr) %>% slice_min(dist)
+  fuzzyjoin::difference_left_join(p2, by=c("pfpr"="pred"), 
+                                  max_dist=1, distance_col="dist") %>%
+  group_by(pfpr, season) %>% slice_min(dist) %>% 
+  rename(eir=init_EIR) %>% 
+  mutate(eir = as.numeric(round(eir,1)), seasonality=case_when(season=='high seasonality'~'highly_seasonal', TRUE~'seasonal')) %>% ungroup() %>% select(-season)
+
+match
 
 ```
 
-Our EIR values are 0.9, 3.6, 6.8, 21.9.
+EIR values are 1.1, 4.7, 10.1, and 38.2 in highly seasonal settings.
+EIR values are 1.2, 4.0, 8.7, and 32.6 in seasonal settings.
 
 <br>
 
@@ -561,7 +597,7 @@ tablefun(tabledat,'seasonal',"Low Seasonality")
 
 Hayley's report says the interventions should be given out 'in the three months preceding the transmission season'. It appears that this is month 4 for seasonal settings and month 6 for highly seasonal settings.  
                                  
-For `malariasimulation` RTS,S dose #3 efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC is spaced so that it covers the high transmission season. RTS,S is shown in blue and SMC in red below. 
+For `malariasimulation` RTS,S dose #3 efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that it covers the high transmission season. RTS,S is shown in blue and SMC in red below. 
                       
 <br>
 
@@ -653,6 +689,8 @@ A + B
 
 # Baseline comparison
 
+Now we will directly compare model outputs from `malariasimulation` to `MalariaLaunchR`. 
+
 ```{r baseline, message=FALSE, warning=FALSE, fig.width=7, fig.height=10}
 #-New facet label names for seas variables--
 seas.labs <- c("Highly Seasonal", "Seasonal")
@@ -710,11 +748,10 @@ baselineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Githu
   rename(seasonality=season) %>%
   group_by(intervention, eir, seasonality, year) %>%
   summarize(cases = sum(cases, na.rm=T),
-            severe = sum(severe, na.rm=T),
-            deaths = sum(deaths, na.rm=T),
-            model='malariasimulation') %>%
-  left_join(match %>% select(pfpr, eir)) %>% 
-  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr))
+            severe = sum(severe_p, na.rm=T),
+            deaths = sum(deaths_p, na.rm=T),
+            model='malariasimulation') %>% ungroup() %>%
+  left_join(match %>% select(pfpr, eir, seasonality))
 
 data <- baselineA %>% filter(run == "baseline") %>% full_join(baselineB %>% filter(intervention == 'none'))
 
@@ -796,7 +833,7 @@ plotcompare(data, "SV 5-dose synergy + SMC")
 
 Plotting the number of dose 3 vaccines given out (malariasimulation) and the number of fully vaccinated children (new model - includes `dose_scaler` variable).
 
-Hayley is calculating this here: https://github.com/htopazian/seasonal_use_case/blob/main/Part_1/4_post_processing.R#L125-L149. I'm not sure if she is correctly adjusting back to dose 3 for scenarios where children receive 1 booster (EPI and SV 4-dose).
+Hayley is calculating this here: https://github.com/htopazian/seasonal_use_case/blob/main/Part_1/4_post_processing.R#L125-L149. I'm not sure if the code is correctly adjusting back to dose 3 for scenarios where children receive 1 booster (EPI and SV 4-dose). The number of children receiving dose 3 should be the same under all booster scenarios. 
 
 ```{r vaccine comparison, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
 
@@ -874,17 +911,17 @@ plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose synergy + SMC"), "SV 5-
 
 # Age group comparison
 
-`malariaEquilibrium` uses the average age to calculate an exponential demography. This does not match up with the `mlgts::flat_demog` file Hayley used.
+`malariaEquilibrium` uses the average age to calculate an exponential demography. This does not match up with the `mlgts::flat_demog` file Hayley used. I am including a code snippet from [malariaEquilibrium](https://github.com/mrc-ide/malariaEquilibrium/blob/b331dab66cac15a8e0ec91171265877f6de92b09/R/main.R#L58-L90), but it does not appear to be working ... 
 
 ```{r agegroup, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
 # load mlgts demography file
 load("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/flat_demog.rda")
 
-flat_demog
+flat_demog %>% rename(year = V1, age_lower = V2, age_upper = V3, inflow = V4, outflow = V5)
 
 # get basic properties
 age <- c(0,0.083333,1,seq(5,95,5),200)
-av_age <- 29.9*365
+av_age <- 8453.323/365
 eta <- 1/av_age # should this be 1/average life expectancy?
 n_age <- length(age)
 age_days <- age*365
@@ -920,10 +957,12 @@ if (i == 1) {
 cbind(age,r,prop)
 ```
 
+<br>
+
 # Things to check
 
-  * MalariaLaunchR uses a constant population size and demography based on the life table for Butajira, Ethiopia, with an average life expectancy at birth of 46.6 years. I don't think malariasimulation has the capacity to plug in demographies yet?
+  * MalariaLaunchR uses a constant population size and demography based on the life table for Butajira, Ethiopia, with an average life expectancy at birth of 46.6 years. Test malariasimulation with the flat_demog.txt file when the model can handle demography inputs. 
 
   * Report states that 'events averted are presented as the cumulative number of events averted over a 15-year period following the introduction of vaccine dose 3.' In malariasimulation I am summing events over the entire 15-year simulation length. 
     
-  * SMC rounds - Hayley ran 3 rounds, but it was supposed to be 4, she will send an updated rds file
+  * SMC rounds - the old model runs 3 rounds, but it was supposed to be 4, Hayley will send an updated rds file.
