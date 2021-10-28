@@ -6,7 +6,7 @@ library(mgcv)
 
 # parameters
 year <- 365
-human_population <- 10000
+human_population <- 100000
 
 params <- get_parameters(list(
   human_population = human_population,
@@ -22,8 +22,9 @@ params <- get_parameters(list(
   prevalence_rendering_max_ages = 10 * year,
   fvt = 0,
   v = 0,
-  severe_enabled = T,
-  individual_mosquitoes = FALSE))
+  # individual_mosquitoes = FALSE,
+  individual_mosquitoes = TRUE,
+  severe_enabled = T))
 
   # set species / drugs / treatment parameters
 params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
@@ -82,14 +83,17 @@ EIR_prev <- cbind(init_EIR, unlist(EIR), unlist(prev)) %>%
 
 
 # save data for later use
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_low.rds')    # low
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_high.rds')   # high
+# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowT.rds')    # low, individual_mosquitoes=T
+# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highT.rds')   # high, individual_mosquitoes=T
+
+# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds')    # low, individual_mosquitoes=F
+# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds')   # high, individual_mosquitoes=F
 
 
 # PLOT RESULTS -----------------------------------------------------------------
-EIR_prev1 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_high.rds') %>% mutate(season = 'high seasonality')
+EIR_prev1 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds') %>% mutate(season = 'high seasonality')
 
-EIR_prev2 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_low.rds') %>% mutate(season = 'low seasonality')
+EIR_prev2 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds') %>% mutate(season = 'low seasonality')
 
 EIR_prev <- rbind(EIR_prev1, EIR_prev2)
 

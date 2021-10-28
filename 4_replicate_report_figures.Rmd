@@ -1,0 +1,962 @@
+---
+title: "Replicating Hayley's RTS,S & SMC report results"
+author: "Hillary Topazian"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    theme: lumen
+    highlight: tango
+    code_folding: hide
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+  
+```{r setup, message=FALSE, warning=FALSE}
+# packages
+library(tidyverse)
+library(fuzzyjoin)
+library(cowplot)
+library(plotly)
+library(kableExtra)
+library(malariasimulation)
+library(data.table)
+
+library(patchwork)
+library(scales)
+library(LaCroixColoR)
+
+# devtools::install_github('mrc-ide/malariasimulation@dev', force=TRUE)
+# devtools::install_github('johannesbjork/LaCroixColoR')
+knitr::opts_knit$set(message=FALSE, warning=FALSE)
+```
+
+```{css style settings, echo = FALSE}
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+```
+
+<br>
+
+# Set-up
+
+Our goal here is to compare model outputs from `malariasimulation` to `MalariaLanchR`, and to replicate Hayley's findings from her report.  
+
+I have checked - 
+
+  * **Seasonality**
+    + High seasonality - g0 = 0.284596, g = c(-0.317878, -0.0017527, 0.116455), h = c(-0.331361, 0.293128, -0.0617547)
+    + Low seasonality - g0 = 0.285505, g = c(-0.325352, -0.0109352, 0.0779865), h = c(-0.132815, 0.104675, -0.013919)
+    + seasonal intervention efficacy starts at 4 months for seasonal settings and 6 months for highly seasonal settings.
+  
+  * **Human population** = 100,000. Average_age = 8453.323.
+  
+  * **Warmup** = 20 years for malariasimulation to stabilize at EIR equilibrium
+  
+  * **Simulation length** = 15 years
+  
+  * **Species** = 25% arabiensis, 25% funestus, 50% gambiae. Bednet and indoor parameters checked and match. No info for IRS parameters since intervention is not turned on.
+  
+  * **Treatment** 
+    + drug = AL
+    + drug_efficacy = 0.95000
+    + drug_rel_c = 0.05094
+    + drug_prophylaxis_shape = 11.30000
+    + drug_prophylaxis_scale = 10.60000
+    + coverage = 0.45
+  
+  * **RTS,S** 
+    + boosters: given 12 months after dose 3 (booster 1) and 24 months after dose 3 (booster 2)
+    + booster coverage = 0.80
+    + boosted antibody mean and stdev = 5.56277, 0.35 
+    + updated antibody mean and stdev = 6.37008, 0.35 (and synergy)
+    + for synergy model: rtss_vmax = 0.911028, rtss_alpha = 0.75303, rtss_beta = 62.8525
+   
+  * **SMC**
+    + drug = SP-AQ
+    + drug_efficacy = 0.75
+    + drug_rel_c = 0.32
+    + drug_prophylaxis_shape = 3.67 (modified from default)
+    + drug_prophylaxis_scale = 41.48 (modified from default)
+    + coverage = 0.75
+    + min-age = 3 months
+    + max-age = 5 years
+    + synergy drug_prophylaxis_shape = 2.955348
+    + synergy drug_prophylaxis_scale = 58.99686
+    + 4 monthly rounds, with timing based on seasonality cuves
+    
+  * **Outcomes**
+    + unless otherwise stated events averted are calculated relative to a baseline no-vaccination scenario
+    + clinical incidence calculated among individuals 0-100 years
+    + severe malaria enabled
+    + fvt (reduced probability of death due to treatment) and v (mortality scaling factor from severe disease) set to 0
+    + deaths - calculating deaths from severe disease use the following: mortality = 0.215 * severe incidence
+
+<br>
+
+# Link Pf prev 2-10 to EIR
+
+`MalariaLanchR` accepts PfPR<sub>2-10</sub> values as inputs to set the model at an equilibrium value. But `malariasimulation` only accepts EIR value inputs using the function `set_equilibrium()`. We will use a range of `malariasimulation` outputs to back link PfPR<sub>2-10</sub> values to EIR outputs using `fuzzyjoin`. Separate matching processes must take place for each seasonality setting. Essentially, we set our baseline parameters, and then run multiple simulations at various EIRs using those baseline settings. We then create a best-fit line through these points, and match with PfPR<sub>2-10</sub>. The blue line in the following plots displays results from `malariaEquilibrium`, which end up underestimating the EIRs to be used in the model.
+
+``` {r prevmatch, message=FALSE, warning=FALSE}
+# loop over malariasimulation runs
+init_EIR <- c(0.01, 0.1, seq(1,9,1), seq(10, 100, by=5)) # set EIR values
+
+# files ending in 2 are for individual_mosquitoes = F. No number is for individiaul_mosquitoes = T. 
+EIR_prev1 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds') %>% mutate(season = 'high seasonality')
+
+EIR_prev2 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds') %>% mutate(season = 'low seasonality')
+
+EIR_prev <- rbind(EIR_prev1, EIR_prev2)
+
+# calculate EIR / prev 2-10 relationship from malariEquilibrium
+eir <- seq(from = .1, to = 100, by=.1)
+eq_params <- malariaEquilibrium::load_parameter_set("Jamie_parameters.rds")
+
+prev <- vapply( # calculate prevalence between 2:10 for a bunch of EIRs
+  eir,
+  function(eir) {
+    eq <- malariaEquilibrium::human_equilibrium(
+      eir,
+      ft=0,
+      p=eq_params,
+      age=0:100
+    )
+    sum(eq$states[2:10, 'pos_M']) / sum(eq$states[2:10, 'prop'])
+  },
+  numeric(1)
+)
+
+prevmatch <- as_tibble(cbind(eir,prev))
+
+colors <- c("malariaEquilibrium" = "blue", "malariasimulation" = "red")
+
+
+p <- ggplot(data=EIR_prev) + 
+  geom_point(aes(x=init_EIR, y=prev), color='black') + 
+  stat_smooth(aes(x=init_EIR, y=prev, color='malariasimulation'), method = 'gam', n=1000) + 
+  geom_line(data=prevmatch, aes(x=eir, y=prev, color = 'malariaEquilibrium')) + 
+  labs(x='initial EIR', y=expression(paste(italic(Pf),"PR"[2-10])), color='model') + 
+  facet_wrap('season', nrow=1) + 
+  scale_color_manual(values = colors) + 
+  theme_classic()
+
+p
+
+# extract points from stat_smooth
+p2 <- ggplot_build(p)
+p2 <- p2$data[[2]]
+
+p2 <- p2 %>% as_tibble() %>% select(x,y,PANEL) %>% rename(init_EIR=x, pred=y, season=PANEL) %>%
+  mutate(season=ifelse(season==1,'high seasonality','low seasonality'))
+
+
+# Pre-intervention baseline PfPR2-10 starting at values 10, 25, 35, 55 
+PfPR <- as_tibble_col(c(.10, .25, .35, .55), column_name="pfpr")
+
+# match via stat_smooth predictions
+match <- PfPR %>%
+  fuzzyjoin::difference_left_join(p2, by=c("pfpr"="pred"), 
+                                  max_dist=1, distance_col="dist") %>%
+  group_by(pfpr, season) %>% slice_min(dist) %>% 
+  rename(eir=init_EIR) %>% 
+  mutate(eir = as.numeric(signif(eir,3)), seasonality=case_when(season=='high seasonality'~'highly_seasonal', TRUE~'seasonal')) %>% ungroup() %>% select(-season)
+
+match
+
+```
+
+<br>
+
+# Figure 1
+
+From Hayley's report:
+
+> Figure 1 Cumulative clinical cases averted over 15 years as a function of baseline PfPR2-10  (four settings representative of medium to high transmission intensity are shown) and seasonality A&C) per population and B&D) per 100,000 fully vaccinated children. Coverage is fixed at 80% for the first three doses with a 20% drop off (from the 3rd dose) for the fourth and fifth doses (coverage is the same for the 4th and 5th dose). Fully vaccinated children are defined as those receiving the primary series (first three doses). EPI- is the four-dose age-based strategy, SV 4&5-dose is the seasonal strategy assuming the original vaccine efficacy profile from the Phase 3 RTS,S trials, SV 4&5-dose – updated booster is the seasonal strategy assuming the updated higher efficacy against infection for the 4th and 5th dose based on our validation to the seasonal malaria vaccination Phase 3b clinical trial (Annex 1).  
+
+<br>
+
+```{r Figure1, message=FALSE, warning=FALSE, fig.width=12, fig.height=4}
+
+# MalariaLaunchR ------------------------------------------------------------
+impact <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/impact_costs_all_ages.RDS')
+
+#-New facet label names for sease variables--
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
+
+figure_2_pd <- 
+  impact %>%
+  filter(coverage == 0.8, cost_per_dose == 6.52, delivery_cost == 1.62) %>% 
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55))
+
+#-per population---------------------------- 
+ca <-  
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = cases_averted, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("MalariaLaunchR") +
+  theme_bw( ) 
+
+
+#-per 100,000 fully vaccinated people----------
+ca_fvp <- 
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = cases_averted_per_100000_fvp, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+ # ylab("Clinical cases averted\n(per 100,000 fully vaccinated children)") +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("MalariaLaunchR") +
+  theme_bw( )
+
+#-deaths averted per population--------------
+da <-  
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = deaths_averted, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("MalariaLaunchR") +
+  theme_bw( )
+
+#-deaths averted per 100,000 fully vaccinated-------
+da_fvp <- 
+  ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = deaths_averted_per_100000_fvp, fill=run)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear"), 
+                    labels=c("epi" = "EPI",
+                             "srtss_4_dose_original" = "SV 4-dose",
+                             "srtss_5_dose_original" = "SV 5-dose",
+                             "srtss_4_dose_update" = "SV 4-dose - updated booster",
+                             "srtss_5_dose_update" = "SV 5-dose - updated booster"))+
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("MalariaLaunchR") +
+  theme_bw( )
+
+#-combining outputs into single figure
+# main_fig <- ca + ca_fvp + da + da_fvp + plot_layout(guides = "collect") & theme(legend.position = "bottom") 
+# 
+# main_fig
+
+# ggsave("combined_averted.png", main_fig, width=12, height = 7)
+
+
+# malariasimulation ---------------------------------------------------------
+
+output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_averted.rds')
+
+fig1dat <- output %>% 
+  left_join(match %>% select(pfpr, eir)) %>% 
+  filter(!grepl('SMC',intervention))
+
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
+
+# cases averted per 100,000 population  
+Fig1a <-  
+  ggplot(fig1dat, aes(x = factor(pfpr * 100), y = cases_averted, fill=intervention)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("malariasimulation") +
+  scale_y_continuous(labels = comma, breaks=seq(0,125000,25000), limits=c(0,125000)) + 
+  theme_bw() 
+ 
+# cases averted per 100,000 vaccinated children
+Fig1b <- 
+  ggplot(fig1dat, aes(x = factor(pfpr * 100), y = cases_averted_per_100000_fvp, fill=intervention)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("malariasimulation") +
+  scale_y_continuous(labels = comma, breaks=seq(0,250000,50000), limits=c(0,250000)) + 
+  theme_bw()
+
+# deaths averted per 100,000 population
+Fig1c <-  
+  ggplot(fig1dat, aes(x = factor(pfpr * 100), y = deaths_averted, fill=intervention)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("malariasimulation") +
+  scale_y_continuous(labels = comma, breaks=seq(0,400,100), limits=c(0,400)) + 
+  theme_bw() 
+  
+# deaths averted per 100,000 vaccinated children
+Fig1d <- 
+  ggplot(fig1dat, aes(x = factor(pfpr * 100), y = deaths_averted_per_100000_fvp, fill=intervention)) +
+  geom_hline(yintercept = 0) +
+  geom_bar(position=position_dodge(), stat="identity",colour="black") +
+  scale_fill_manual(values=lacroix_palette("PeachPear")) +
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       fill="Vaccination schedule",
+       parse=TRUE) + 
+  facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+  xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle("malariasimulation") +
+  scale_y_continuous(labels = comma, breaks=seq(0,800,200), limits=c(0,850)) + 
+  theme_bw()
+
+# combining outputs into single figure
+# main_fig <- Fig1a + Fig1b + Fig1c + Fig1d + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+# 
+# main_fig
+
+# ggsave("./plots/combined_averted.png", main_fig, width=12, height = 7)
+
+# plot ----------------------------------------------------------------------
+ca + Fig1a + plot_layout(guides = "collect") + plot_annotation(title = 'A - Clinical cases averted per 100,000 population', theme = theme(plot.title = element_text(size = 18)))
+
+ca_fvp + Fig1b + plot_layout(guides = "collect") + plot_annotation(title = 'B - Clinical cases averted (per 100,000 fully vaccinated children', theme = theme(plot.title = element_text(size = 18)))
+
+da + Fig1c + plot_layout(guides = "collect") + plot_annotation(title = 'C - Deaths averted per 100,000 population', theme = theme(plot.title = element_text(size = 18)))
+
+da_fvp + Fig1d + plot_layout(guides = "collect") + plot_annotation(title = 'D - Deaths averted (per 100,000 fully vaccinated children)', theme = theme(plot.title = element_text(size = 18)))
+
+```
+
+<br>
+
+# Figure 2
+
+From Hayley's report:
+
+> Figure 2 Cumulative clinical cases and deaths averted over 15 years per population as a function of baseline PfPR2-10 (four representative of medium to high transmission intensity are shown) and seasonality. Coverage is fixed at 80% for the first three doses with a 20% drop off for the fourth and fifth doses. SMC coverage at 75%. EPI- is the four-dose age-based strategy, SV 4&5-dose is the seasonal strategy assuming the original vaccine efficacy profile for the Phase 3 RTS,S trials. SV 4&5-dose – updated booster is the seasonal strategy assuming the updated higher efficacy against infection for the 4th and 5th dose and synergy the increase in the modelled total RTS,S and SMC efficacy against infection above that of each intervention when they are considered alone based on the seasonal malaria vaccination Phase 3b clinical trial.
+
+<br>
+
+```{r Figure2, message=FALSE, warning=FALSE, fig.width=12, fig.height=4}
+# MalariaLaunchR ------------------------------------------------------------
+
+impact <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/impact_costs_all_ages.RDS')
+
+figure_2_pd <- 
+  impact %>%
+  filter(coverage %in% c(0.8,0), cost_per_dose == 6.52, delivery_cost == 1.62) %>% 
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55))
+
+# New facet label names for supp variable
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
+
+figure_2_pd <- figure_2_pd %>% 
+  mutate(run = case_when(run=="epi_smc" ~ "EPI + SMC", 
+      run=="srtss_4_dose_original_smc" ~ "SV 4-dose + SMC",
+      run=="srtss_5_dose_original_smc" ~ "SV 5-dose + SMC",
+      run=="srtss_4_dose_update_smc" ~ "SV 4-dose - updated booster + SMC",
+      run=="srtss_5_dose_update_smc" ~ "SV 5-dose - updated booster + SMC", 
+  run=="srtss_4_dose_param_mod_smc" ~ "SV 4-dose synergy + SMC", 
+      run=="srtss_5_dose_param_mod_smc" ~ "SV 5-dose synergy + SMC", 
+      run=="smc" ~ "SMC alone"))
+
+figure_2_pd$run <- factor(figure_2_pd$run, levels=c("SMC alone", "EPI + SMC", "SV 4-dose + SMC", "SV 4-dose - updated booster + SMC", "SV 4-dose synergy + SMC", "SV 5-dose + SMC", "SV 5-dose - updated booster + SMC", "SV 5-dose synergy + SMC"))
+
+
+# set the colour levels 
+color_vals <- c("SMC alone" = "#f0c9e9",
+                "EPI + SMC" = "#FF3200",
+                "SV 4-dose + SMC" = "#E9A17C", 
+                "SV 4-dose - updated booster + SMC" = "#E9E4A6", 
+                "SV 4-dose synergy + SMC" = "#eab06d",
+                "SV 5-dose + SMC" = "#1bb6af", 
+                "SV 5-dose - updated booster + SMC" = "#0076bb",
+                "SV 5-dose synergy + SMC" = "#172869")
+
+
+#-plot impact averted-----------------------
+ca <-  
+    ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = cases_averted, fill=run)) +
+    geom_hline(yintercept = 0) +
+    geom_bar(position=position_dodge(), stat="identity",colour="black") +
+    scale_fill_manual(values = color_vals) + 
+    labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+         y = " ",
+         fill="Vaccination schedule",
+         parse=TRUE) + 
+    scale_y_continuous(labels = comma) + 
+    facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+    xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+    ggtitle("MalariaLaunchR") +
+    theme_bw( ) 
+
+da <-  
+    ggplot(figure_2_pd, aes(x = factor(pfpr * 100), y = deaths_averted, fill=run)) +
+    geom_hline(yintercept = 0) +
+    geom_bar(position=position_dodge(), stat="identity",colour="black") +
+    scale_fill_manual(values = color_vals) + 
+    labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+         y = " ",
+         fill="Vaccination schedule",
+         parse=TRUE) + 
+    scale_y_continuous(labels = comma) + 
+    facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+    xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+    ggtitle("MalariaLaunchR") +
+    theme_bw()
+ 
+# report_fig <- ca / da + plot_layout(guides = "collect") & theme(legend.position = "right")
+#   
+# report_fig
+  
+# ggsave("report_fig_main.png", report_fig)#, width=8, height = 5)
+
+# malariasimulation ---------------------------------------------------------
+
+fig2dat <- output %>% 
+  left_join(match %>% select(pfpr, eir)) %>% 
+  filter(grepl('SMC',intervention))
+
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
+
+# set the colour levels 
+fig2dat$intervention <- factor(fig2dat$intervention, levels=c("SMC alone", "EPI + SMC", "SV 4-dose + SMC", "SV 4-dose - updated booster + SMC", "SV 4-dose synergy + SMC", "SV 5-dose + SMC", "SV 5-dose - updated booster + SMC", "SV 5-dose synergy + SMC"))
+
+
+#-plot impact averted-----------------------
+Fig2a <-  
+    ggplot(fig2dat, aes(x = factor(pfpr * 100), y = cases_averted, fill=intervention)) +
+    geom_hline(yintercept = 0) +
+    geom_bar(position=position_dodge(), stat="identity",colour="black") +
+    scale_fill_manual(values = color_vals) + 
+    labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+         y = " ",
+         fill="Vaccination schedule",
+         parse=TRUE) + 
+    facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+    xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+    ggtitle("malariasimulation") +
+    scale_y_continuous(labels = comma, breaks=seq(0,200000,100000), limits=c(0,280000)) + 
+    theme_bw( ) 
+
+Fig2b <-  
+    ggplot(fig2dat, aes(x = factor(pfpr * 100), y = deaths_averted, fill=intervention)) +
+    geom_hline(yintercept = 0) +
+    geom_bar(position=position_dodge(), stat="identity",colour="black") +
+    scale_fill_manual(values = color_vals) + 
+    labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+         y = " ",
+         fill="Vaccination schedule",
+         parse=TRUE) + 
+    facet_wrap(season  ~ ., labeller = labeller(season = seas.labs)) +
+    xlab(expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+    ggtitle("malariasimulation") +
+    scale_y_continuous(labels = comma, breaks=seq(0,1000,250), limits=c(0,1000)) + 
+    theme_bw()
+ 
+# report_fig <- Fig2a / Fig2b + plot_layout(guides = "collect") & theme(legend.position = "right")
+#   
+# report_fig
+
+# plot ----------------------------------------------------------------------
+ca + Fig2a + plot_layout(guides = "collect") + plot_annotation(title = 'A - Clinical cases averted per 100,000 population', theme = theme(plot.title = element_text(size = 18)))
+
+da + Fig2b + plot_layout(guides = "collect") + plot_annotation(title = 'B - Deaths averted per 100,000 population', theme = theme(plot.title = element_text(size = 18)))
+
+```
+
+<br>
+
+# Comparison table
+
+Comparing the differences in case and death counts between MalariaLaunchR and malariasimulation outputs, aggregated over 15 years. 
+
+  * **case difference** = # cases new model - # cases old model
+  * **case %** = ^ as %
+  * **death difference** = # deaths new model - # cases deaths model
+  * **death %**	= ^ as %
+  * **vacc difference**	= # vaccinated kids new model - # vaccinated kids  old model
+  * **vacc %** = ^ as %
+
+```{r table1malariasimulation, message=FALSE, warning=FALSE, results="asis"}
+A <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/impact_costs_all_ages.RDS') 
+B <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/impact_costs_all_ages.RDS')
+
+C <- A %>% full_join(B) %>%
+  filter(coverage %in% c(0,0.8), cost_per_dose == 6.52, delivery_cost == 1.62) %>% 
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>% 
+  mutate(intervention = case_when(run=="epi" ~ "EPI",
+      run=="srtss_4_dose_original" ~ "SV 4-dose",
+      run=="srtss_5_dose_original" ~ "SV 5-dose",
+      run=="srtss_4_dose_update" ~ "SV 4-dose - updated booster",
+      run=="srtss_5_dose_update" ~ "SV 5-dose - updated booster",
+      run=="epi_smc" ~ "EPI + SMC", 
+      run=="srtss_4_dose_original_smc" ~ "SV 4-dose + SMC",
+      run=="srtss_5_dose_original_smc" ~ "SV 5-dose + SMC",
+      run=="srtss_4_dose_update_smc" ~ "SV 4-dose - updated booster + SMC",
+      run=="srtss_5_dose_update_smc" ~ "SV 5-dose - updated booster + SMC", 
+      run=="srtss_4_dose_param_mod_smc" ~ "SV 4-dose synergy + SMC", 
+      run=="srtss_5_dose_param_mod_smc" ~ "SV 5-dose synergy + SMC",
+      run=="smc" ~ "SMC alone")) %>%
+   select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) 
+
+D <- output %>% ungroup() %>%
+  left_join(match %>% select(pfpr, eir)) %>% 
+  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr)) %>%
+  mutate(seasonality = season,
+         number_fvp = dosecomplete) %>%
+  select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) %>%
+  rename(cases2=cases, deaths2=deaths, ca=cases_averted, da=deaths_averted, cafvp=cases_averted_per_100000_fvp, nfvp=number_fvp)
+
+tabledat <- C %>% full_join(D)
+
+tablefun <- function(data, season, title){
+  table <- data %>% filter(seasonality==season) %>% 
+  group_by(intervention, pfpr) %>% 
+  summarize(case_diff=cases2-cases,
+            case_per=case_diff/cases*100,
+            deaths_diff=deaths2-deaths,
+            deaths_per=deaths_diff/deaths*100,
+            nv_diff=nfvp-number_fvp,
+            nv_per=nv_diff/number_fvp*100) %>%
+  kbl(col.names = c('intervention','PfPR','case difference', 'case %', 'death difference', 'death %', 'vacc difference', 'vacc %'), digits=2, caption = title, escape = F, align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
+  
+  print(table)
+}
+
+tablefun(tabledat,'highly_seasonal',"High Seasonality")
+tablefun(tabledat,'seasonal',"Low Seasonality")
+```
+
+<br>
+
+# Seasonality
+
+Hayley's report says the interventions should be given out 'in the three months preceding the transmission season'. It appears that this is month 4 for seasonal settings and month 6 for highly seasonal settings.  
+                                 
+For `malariasimulation` RTS,S dose #3 efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that it covers the high transmission season. RTS,S is shown in blue and SMC in red below. 
+                      
+<br>
+
+## malariasimulation
+
+```{r seasonalitymalariasimulation, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+human_population <- 1000
+year <- 365
+month <- year/12
+warmup <- 4*year
+sim_length <- 1*year
+  
+# highly seasonal parameters
+high_seas <- get_parameters(list(
+  human_population = human_population,
+  model_seasonality = TRUE, 
+  g0 = 0.284596, 
+  g = c(-0.317878, -0.0017527, 0.116455),
+  h = c(-0.331361, 0.293128, -0.0617547),
+  incidence_rendering_min_ages = 0,
+  incidence_rendering_max_ages = 100 * year,
+  clinical_incidence_rendering_min_ages = 0,
+  clinical_incidence_rendering_max_ages = 100 * year,
+  fvt = 0,
+  v = 0,
+  severe_enabled = T))
+
+# seasonal parameters
+low_seas <- get_parameters(list(
+  human_population = human_population,
+  model_seasonality = TRUE, 
+  g0 = 0.285505, 
+  g = c(-0.325352, -0.0109352, 0.0779865),
+  h = c(-0.132815, 0.104675, -0.013919),
+  incidence_rendering_min_ages = 0,
+  incidence_rendering_max_ages = 100 * year,
+  clinical_incidence_rendering_min_ages = 0,
+  clinical_incidence_rendering_max_ages = 100 * year,
+  fvt = 0,
+  v = 0,
+  severe_enabled = T))
+
+# run model
+params <- high_seas
+params <- set_equilibrium(params, 10)
+output_highseas <- run_simulation(warmup + sim_length, params)
+
+params <- low_seas
+params <- set_equilibrium(params, 10)
+output_lowseas <- run_simulation(warmup + sim_length, params)
+
+plotfun <- function(data,title){
+  data %>% 
+  mutate(timestep = timestep - warmup) %>% filter(timestep > 0) %>%
+  mutate(month=floor(timestep/(365/12))) %>%
+  group_by(month) %>%
+  summarize(inc_month=sum(n_inc_clinical_0_36500 / n_0_36500, na.rm=T)) %>%
+ggplot() + 
+  geom_line(aes(x=month, y=inc_month)) + 
+  labs(title=title,
+       x="Timesteps (month)",
+       y="Monthly clinical incidence") + 
+  scale_y_continuous(limits=c(0,0.25),breaks=c(0,0.1,0.2)) +
+  theme_classic()
+}
+
+first_highseas <- c((peak_season_offset(high_seas)/month) + c(-1.55,-1.5,-0.5,0.5,1.5)) %>% 
+  as_tibble() %>%
+  mutate(color = c(rep('blue',1), rep('red',4)),
+         type = c(rep('RTS,S',1), rep('SMC',4)))
+
+first_lowseas <- c((peak_season_offset(low_seas)/month) + c(-3.5,-1.5,-0.5,0.5,1.5)) %>% 
+  as_tibble() %>%
+  mutate(color = c(rep('blue',1), rep('red',4)),
+         type = c(rep('RTS,S',1), rep('SMC',4)))
+
+A <- plotfun(output_highseas,"highly seasonal") + 
+  geom_vline(xintercept=first_highseas$value, lty=2, color=first_highseas$color) +
+  geom_rect(xmin = 6.094521, xmax = 9.094521 + 1, ymin = 0, ymax = 0.25, fill="red", alpha = 0.02)
+
+B <- plotfun(output_lowseas,"seasonal") + 
+  geom_vline(xintercept=first_lowseas$value, lty=2, color=first_lowseas$color) +
+  geom_rect(xmin = 6.028767, xmax = 9.028767 + 1, ymin = 0, ymax = 0.25, fill="red", alpha = 0.02)
+
+A + B 
+```
+
+<br>
+
+# Baseline comparison
+
+Now we will directly compare model outputs from `malariasimulation` to `MalariaLaunchR`. 
+
+```{r baseline, message=FALSE, warning=FALSE, fig.width=7, fig.height=10}
+#-New facet label names for seas variables--
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
+
+population_size = 100000 #target outputs per 100,000 population size 
+tx = 0.52                #treatment coverage run in simulations 
+scaler = 0.215           #severe case to death modifier
+treatment_scaler = 0.5   #treatment modifier
+treatment_coverage = 0.52#coverage 
+
+oldmodelprocess <- function(file){readRDS(file) %>% 
+  dplyr::select(-contains("prev_2_10")) %>% 
+  mutate_at(vars(contains("smooth")), as.numeric) %>% 
+  # keep smoothed output and ignore intervention numbers for now
+  dplyr::select(run, pfpr, seasonality, draw, coverage, year, dplyr::contains("smooth")) %>% 
+  #-convert from wide to long format
+  tidyr::pivot_longer(-c(year, run, pfpr, seasonality, draw, coverage), names_to = "var", values_to = "y") %>%
+  #-remove _smooth subscript for neater names
+  dplyr::mutate(var = stringr::str_remove(var, "_smooth")) %>%
+  #-isolate lower and upper age bounds from variable names
+  tidyr::separate(var, into = c("type", "age_lower", "age_upper"), sep = "_", convert = TRUE) %>%
+  #-convert back to wide
+  tidyr::pivot_wider(id_cols = c(run, pfpr, seasonality, draw, coverage, year, age_lower, age_upper), names_from = type, values_from = y) %>% 
+  #-replace -999 / INF/ NA values in output
+  dplyr::mutate(prev = ifelse(prev == -999, 0, prev),
+                inc = ifelse(inc == -999, 0, inc),
+                inc = ifelse(inc == Inf, 0, inc),
+                sev = ifelse(sev == -999, 0, sev),
+                sev = ifelse(sev == Inf, 0, sev),
+                prop = ifelse(prop == -999, 0, prop)) %>%
+  tidyr::replace_na(
+    list( prev = 0, inc = 0, sev = 0, prop = 0)) %>% 
+  #-mortality rate
+  mutate(mort = (1-(treatment_scaler * 0)) * scaler * sev) %>% 
+  #-convert burden (incidence * proportion aged * population size)
+  #-case load is weighted by proportion in age range in population * total size
+  mutate(cases            = round(inc * prop * population_size), 
+         severe           = round(sev * prop * population_size), 
+         hospitalisations = round(severe * tx), 
+         deaths           = round(mort * prop * population_size)) %>%
+  filter(year > 0) %>%
+  filter(coverage %in% c(0.8,0)) %>%
+  group_by(run, pfpr, seasonality, coverage, draw, year) %>%
+  summarise(across(cases:deaths, sum)) %>%
+  ungroup() %>% mutate(model='MalariaLaunchR') %>% filter(pfpr %in% c(0.1,0.25,0.35,0.55))
+}
+
+baselineA <- oldmodelprocess('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/combined_outputs_raw.RDS') %>% 
+  rbind(oldmodelprocess('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/combined_outputs_smc.RDS')) %>% distinct()
+
+# malariasimulation
+baselineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds") %>% 
+  mutate(year=ceiling(timestep/365)) %>%
+  rename(seasonality=season) %>%
+  group_by(intervention, eir, seasonality, year) %>%
+  summarize(cases = sum(cases, na.rm=T),
+            severe = sum(severe_p, na.rm=T),
+            deaths = sum(deaths_p, na.rm=T),
+            model='malariasimulation') %>% ungroup() %>%
+  left_join(match %>% select(pfpr, eir))
+
+data <- baselineA %>% filter(run == "baseline") %>% full_join(baselineB %>% filter(intervention == 'none'))
+
+# plots
+plotbaseline <- function(data, var, title){
+ggplot(data=data, aes(x=year, y=var, color=factor(pfpr * 100), lty=model)) + 
+  geom_line() + 
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_continuous(breaks = seq(1,15,1)) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  labs(x='year', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle(title) +
+  theme_classic()
+}
+
+plotcompare <- function(data, title){
+plotbaseline(data, data$cases, paste(title,"comparison - # clinical cases")) /
+plotbaseline(data, data$severe, paste(title,"comparison - # severe cases")) /
+plotbaseline(data, data$deaths, paste(title,"comparison - # deaths"))
+}
+
+plotcompare(data, "Baseline")
+
+```
+
+<br>
+
+# Intervention comparison
+
+```{r intervention comparison, message=FALSE, warning=FALSE, fig.width=7, fig.height=10}
+
+data <- baselineA %>% filter(run == "epi") %>% full_join(baselineB %>% filter(intervention == 'EPI'))
+plotcompare(data, "EPI")
+
+data <- baselineA %>% filter(run == "srtss_4_dose_original") %>% full_join(baselineB %>% filter(intervention == 'SV 4-dose'))
+plotcompare(data, "SV 4-dose")
+
+data <- baselineA %>% filter(run == "srtss_5_dose_original") %>% full_join(baselineB %>% filter(intervention == 'SV 5-dose'))
+plotcompare(data, "SV 5-dose")
+
+data <- baselineA %>% filter(run == "srtss_4_dose_update") %>% full_join(baselineB %>% filter(intervention == 'SV 4-dose - updated booster'))
+plotcompare(data, "SV 4-dose - updated booster")
+
+data <- baselineA %>% filter(run == "srtss_5_dose_update") %>% full_join(baselineB %>% filter(intervention == 'SV 5-dose - updated booster'))
+plotcompare(data, "SV 5-dose - updated booster")
+
+data <- baselineA %>% filter(run == "smc") %>% full_join(baselineB %>% filter(intervention == 'SMC alone'))
+plotcompare(data, "SMC alone")
+
+data <- baselineA %>% filter(run == "epi_smc") %>% full_join(baselineB %>% filter(intervention == 'EPI + SMC'))
+plotcompare(data, "EPI + SMC")
+
+data <- baselineA %>% filter(run == "srtss_4_dose_original_smc") %>% full_join(baselineB %>% filter(intervention == 'SV 4-dose + SMC'))
+plotcompare(data, "SV 4-dose + SMC")
+
+data <- baselineA %>% filter(run == "srtss_5_dose_original_smc") %>% full_join(baselineB %>% filter(intervention == 'SV 5-dose + SMC'))
+plotcompare(data, "SV 5-dose + SMC")
+
+data <- baselineA %>% filter(run == "srtss_4_dose_update_smc") %>% full_join(baselineB %>% filter(intervention == 'SV 4-dose - updated booster + SMC'))
+plotcompare(data, "SV 4-dose - updated booster + SMC")
+
+data <- baselineA %>% filter(run == "srtss_5_dose_update_smc") %>% full_join(baselineB %>% filter(intervention == 'SV 5-dose - updated booster + SMC'))
+plotcompare(data, "SV 5-dose - updated booster + SMC")
+
+data <- baselineA %>% filter(run == "srtss_4_dose_param_mod_smc") %>% full_join(baselineB %>% filter(intervention == 'SV 4-dose synergy + SMC'))
+plotcompare(data, "SV 4-dose synergy + SMC")
+
+data <- baselineA %>% filter(run == "srtss_5_dose_param_mod_smc") %>% full_join(baselineB %>% filter(intervention == 'SV 5-dose synergy + SMC'))
+plotcompare(data, "SV 5-dose synergy + SMC")
+
+```
+
+<br>
+
+# Vaccine comparison
+
+Plotting the number of dose 3 vaccines given out (malariasimulation) and the number of fully vaccinated children (new model - includes `dose_scaler` variable).
+
+Hayley is calculating this here: https://github.com/htopazian/seasonal_use_case/blob/main/Part_1/4_post_processing.R#L125-L149. I'm not sure if the code is correctly adjusting back to dose 3 for scenarios where children receive 1 booster (EPI and SV 4-dose). The number of children receiving dose 3 should be the same under all booster scenarios. 
+
+```{r vaccine comparison, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+
+dose_scaler <- 0.266666667 #total doses need to get scaled to number fully vaccinated children (first 3 doses)
+
+vaccineA <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/combined_outputs_raw.RDS') %>% 
+  rbind(readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_2/combined_outputs_smc.RDS')) %>% distinct() %>% 
+  group_by(run, pfpr, seasonality, draw, coverage) %>% 
+  dplyr::mutate(
+    num_vacc_doses = c(0, diff(num_vacc_doses / 3)),
+    num_trt        = c(0, diff(num_trt /3))) %>% 
+   select(run, pfpr, seasonality, draw, coverage, year, num_vacc_doses,  num_trt) %>%
+  filter(year > 0) %>%
+  filter(coverage %in% c(0.8,0)) %>%
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>%
+  mutate(model='MalariaLaunchR',
+         dose3=num_vacc_doses * dose_scaler) %>%
+  mutate(intervention = case_when(run=="epi" ~ "EPI",
+      run=="srtss_4_dose_original" ~ "SV 4-dose",
+      run=="srtss_5_dose_original" ~ "SV 5-dose",
+      run=="srtss_4_dose_update" ~ "SV 4-dose - updated booster",
+      run=="srtss_5_dose_update" ~ "SV 5-dose - updated booster",
+      run=="epi_smc" ~ "EPI + SMC", 
+      run=="srtss_4_dose_original_smc" ~ "SV 4-dose + SMC",
+      run=="srtss_5_dose_original_smc" ~ "SV 5-dose + SMC",
+      run=="srtss_4_dose_update_smc" ~ "SV 4-dose - updated booster + SMC",
+      run=="srtss_5_dose_update_smc" ~ "SV 5-dose - updated booster + SMC", 
+      run=="srtss_4_dose_param_mod_smc" ~ "SV 4-dose synergy + SMC", 
+      run=="srtss_5_dose_param_mod_smc" ~ "SV 5-dose synergy + SMC",
+      run=="smc" ~ "SMC alone"))
+
+# malariasimulation
+vaccineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds") %>% 
+  mutate(year=ceiling(timestep/365)) %>%
+  rename(seasonality=season) %>%
+  group_by(intervention, eir, seasonality, year) %>%
+  summarize(dose3 = sum(dose3, na.rm=T),
+            model='malariasimulation') %>%
+  left_join(match %>% select(pfpr, eir)) %>% 
+  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr))
+
+# plots
+plotvaccine <- function(data, title){
+ggplot(data=data, aes(x=year, y=dose3, color=factor(pfpr * 100), lty=model)) + 
+  geom_line() + 
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma, limits = c(0,4000), breaks = seq(0,4000,1000)) + 
+  scale_x_continuous(breaks = seq(1,15,1)) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  labs(x='year', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  ggtitle(title) +
+  theme_classic()
+}
+
+vaxdat <- vaccineA %>% full_join(vaccineB)
+
+plotvaccine(vaxdat %>% filter(intervention == "EPI"), "EPI")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose"), "SV 4-dose")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose"), "SV 5-dose")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose - updated booster"), "SV 4-dose - updated booster")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose - updated booster"), "SV 5-dose - updated booster")
+plotvaccine(vaxdat %>% filter(intervention == "EPI + SMC"), "EPI + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose + SMC"), "SV 4-dose + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose + SMC"), "SV 5-dose + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose - updated booster + SMC"), "SV 4-dose - updated booster + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose - updated booster + SMC"), "SV 5-dose - updated booster + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 4-dose synergy + SMC"), "SV 4-dose synergy + SMC")
+plotvaccine(vaxdat %>% filter(intervention == "SV 5-dose synergy + SMC"), "SV 5-dose synergy + SMC")
+
+```
+
+<br>
+
+# Age group comparison
+
+`malariaEquilibrium` uses the average age to calculate an exponential demography. This does not match up with the `mlgts::flat_demog` file Hayley used. I am including a code snippet from [malariaEquilibrium](https://github.com/mrc-ide/malariaEquilibrium/blob/b331dab66cac15a8e0ec91171265877f6de92b09/R/main.R#L58-L90), but it does not appear to be working ... 
+
+```{r agegroup, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+# load mlgts demography file
+load("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/flat_demog.rda")
+
+flat_demog %>% rename(year = V1, age_lower = V2, age_upper = V3, inflow = V4, outflow = V5)
+
+# get basic properties
+age <- c(0,0.083333,1,seq(5,95,5),200)
+av_age <- 8453.323/365
+eta <- 1/av_age # should this be 1/average life expectancy?
+n_age <- length(age)
+age_days <- age*365
+  
+# produce population age distribution using eta, which is defined as 1/average
+# age. The population distribution can be envisioned as an exponential
+# distribution, with mass feeding in from the left due to birth at rate eta,
+# people ageing with rates defined based on the width of the age groups, and
+# mass leaking out of all categories with death rate eta. Total birth and
+# death rates are equal, making the distribution stable.
+prop <- r <- rep(0, n_age)
+for (i in 1:n_age) {
+
+# r[i] can be thought of as the rate of ageing in this age group, i.e.
+# 1/r[i] is the duration of this group
+if (i == n_age) {
+  r[i] <- 0
+} else {
+  age_width <- age_days[i+1] - age_days[i]
+  r[i] <- 1/age_width
+}
+# prop is calculated from the relative flows into vs. out of this age group.
+# For the first age group the flow in is equal to the birth rate (eta). For
+# all subsequent age groups the flow in represents ageing from the previous
+# group. The flow out is always equal to the rate of ageing or death.
+if (i == 1) {
+      prop[i] <- eta/(r[i] + eta)
+} else {
+  prop[i] <- prop[i-1]*r[i-1]/(r[i] + eta)
+  }
+}
+
+cbind(age,r,prop)
+```
+
+<br>
+
+# Things to check
+
+  * MalariaLaunchR uses a constant population size and demography based on the life table for Butajira, Ethiopia, with an average life expectancy at birth of 46.6 years. Test malariasimulation with the flat_demog.txt file when the model can handle demography inputs. 
+
+  * Report states that 'events averted are presented as the cumulative number of events averted over a 15-year period following the introduction of vaccine dose 3.' In malariasimulation I am summing events over the entire 15-year simulation length. 
+    
+  * SMC rounds - the old model runs 3 rounds, but it was supposed to be 4, Hayley will send an updated rds file.

@@ -42,7 +42,7 @@ human_population <- 100000
 # highly seasonal parameters
 high_seas <- get_parameters(list(
   human_population = human_population,
-  #average_age = (1/.040481)*year, # to match flat_demog
+  average_age = 8453.323, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.284596, 
   g = c(-0.317878, -0.0017527, 0.116455),
@@ -55,12 +55,14 @@ high_seas <- get_parameters(list(
   severe_incidence_rendering_max_ages = 100 * year,
   fvt = 0,
   v = 0,
+  individual_mosquitoes = FALSE,
+  # individual_mosquitoes = TRUE,
   severe_enabled = T))
 
 # seasonal parameters
 low_seas <- get_parameters(list(
   human_population = human_population,
-  #average_age = (1/.040481)*year, # to match flat_demog
+  average_age = 8453.323, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.285505, 
   g = c(-0.325352, -0.0109352, 0.0779865),
@@ -73,14 +75,24 @@ low_seas <- get_parameters(list(
   severe_incidence_rendering_max_ages = 100 * year,
   fvt = 0,
   v = 0,
+  individual_mosquitoes = FALSE,
+  # individual_mosquitoes = TRUE,
   severe_enabled = T))
 
-params <- tibble(params=list(high_seas,low_seas))
+params <- tibble(params=rep(list(high_seas,high_seas,high_seas,high_seas,
+                                 low_seas,low_seas,low_seas,low_seas)))
 season <- c(rep('high_seas',4), rep('low_seas',4))
-starting_EIR <- c(0.9, 3.6, 6.8, 21.9)
 
-combo <- crossing(params, starting_EIR, warmup, sim_length) %>% cbind(season) %>%
-  as_tibble()
+# EIR_high <- c(1.1, 4.7, 10.1, 38.2) # malariasimulation, individual_mosquitoes=T
+# EIR_low <- c(1.2, 4.0, 8.7, 32.6) # malariasimulation, individual_mosquitoes=T
+EIR_high <- c(1.61, 6.92, 13.7, 52.3) # malariasimulation, individual_mosquitoes=F
+EIR_low <- c(1.51, 6.12, 12.1, 44.1) # malariasimulation, individual_mosquitoes=F
+
+starting_EIR <- c(EIR_high, EIR_low)
+
+combo <- cbind(params, warmup, sim_length, starting_EIR, season) 
+
+combo
 
 # Run tasks -------------------------------------------------------------------
 # NO INTERVENTION
@@ -239,6 +251,8 @@ t$status()
 require(data.table)
 library(tidyverse)
 
+# rename HPC folder to 'HPC_XX' - check to make sure you are pulling files from the correct folder to process.
+
 files <- list.files(path = "M:/Hillary/rtss_malariasimulation/rds/HPC", pattern = "*.rds", full.names = TRUE)
 dat_list <- lapply(files, function (x) data.table(readRDS(x)))
 
@@ -269,15 +283,19 @@ summary(dat$n_0_36500)
 dat2 <- dat %>% 
   mutate(cases = (n_inc_clinical_0_36500/n_0_36500) * human_population,
          n = n_0_36500,
+         cases_p = (p_inc_clinical_0_36500/n_0_36500) * human_population,
          severe = (n_inc_severe_0_36500/n_0_36500) * human_population,
-         deaths = 0.215 * (n_inc_severe_0_36500/n_0_36500) * human_population) %>% 
+         severe_p = (p_inc_severe_0_36500/n_0_36500) * human_population,
+         deaths = 0.215 * (n_inc_severe_0_36500/n_0_36500) * human_population,
+         deaths_p = 0.215 * (p_inc_severe_0_36500/n_0_36500) * human_population) %>% 
   rowwise() %>%
   mutate(dose1 = sum(n_rtss_epi_dose_1,n_rtss_mass_dose_1,na.rm=T),
          dose2 = sum(n_rtss_epi_dose_2,n_rtss_mass_dose_2,na.rm=T),
          dose3 = sum(n_rtss_epi_dose_3,n_rtss_mass_dose_3,na.rm=T),
          dose4 = sum(n_rtss_epi_booster_1,n_rtss_mass_booster_1,na.rm=T),
          dose5 = sum(n_rtss_mass_booster_2,na.rm=T),
-         dosecomplete = dose3) %>% ungroup()
+         dosecomplete = dose3) %>%
+  ungroup()
 
 saveRDS(dat2,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds")
          

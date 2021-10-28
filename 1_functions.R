@@ -130,7 +130,7 @@ runsim_SMC <- function(params, starting_EIR, warmup, sim_length, season, shape, 
   
   peak <- peak_season_offset(params)
   first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
-  timesteps <- c(seq(0:14)*year + rep(first,15))
+  timesteps <- c(c(0,seq(1:14))*year + rep(first,15))
   
   params <- set_smc(
     params,
@@ -168,7 +168,7 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
   
   peak <- peak_season_offset(params)
   first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
-  timesteps <- c(seq(0:14)*year + rep(first,15))
+  timesteps <- c(c(0,seq(1:14))*year + rep(first,15))
   
   params <- set_smc(
     params,
@@ -223,7 +223,7 @@ runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape
   
   peak <- peak_season_offset(params)
   first <- round(warmup+c(peak+c(-1.5,-0.5,0.5,1.5)*month),0)
-  timesteps <- c(seq(0:14)*year + rep(first,15))
+  timesteps <- c(c(0,seq(1:14))*year + rep(first,15))
   
   params <- set_smc(
     params,
@@ -261,4 +261,47 @@ runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape
     filter(timestep > 0)
   
   saveRDS(output, paste0('./rds/HPC/',name,season,starting_EIR,'.rds'))
+}
+
+
+# HYBRID --------------------------------------------------------------------
+runsim_hybrid <- function(params, minwait, starting_EIR, warmup, sim_length, season, fifth){
+  year <- 365
+  month <- year/12
+  
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
+  
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  params$rtss_doses <- round(c(0,1.5*month,3*month))
+  
+  peak <- peak_season_offset(params)
+  first <- ifelse(season=='high_seas', round((peak-month*3.5),0), round((peak-month*5.5),0))
+  boosters <- if(fifth==0) c(first+3*month) else ((first+3*month) + c(0, year))
+
+  params <- set_rtss_epi(
+    params,
+    start = warmup, 
+    end = warmup + sim_length,
+    coverage = 0.8,
+    age = round(6*month),
+    min_wait = minwait,
+    boosters = boosters,
+    booster_coverage = rep(.80, length(boosters)),
+    seasonal_boosters = TRUE)
+  
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           minwait=minwait,
+           timestep=timestep-warmup,
+           model=season,
+           fifth=fifth) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/HPC/hybrid_',minwait,'wait_',season,starting_EIR,'_',fifth,'.rds'))
 }
