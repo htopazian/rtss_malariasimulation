@@ -1,7 +1,7 @@
 # Set-up ----------------------------------------------------------------------
 library(didehpc)
 setwd('M:/Hillary/rtss_malariasimulation')
-# remotes::install_github('mrc-ide/malariasimulation@bug/severe', force=T)
+# remotes::install_github('mrc-ide/malariasimulation@feat/simple_severe', force=T)
 source('./1_functions.R')
 
 options(didehpc.cluster = "fi--didemrchnb",
@@ -14,8 +14,8 @@ root <- "context"
 
 sources <- c('./1_functions.R')
 
-# src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
-src <- conan::conan_sources("github::mrc-ide/malariasimulation@bug/severe")
+# src <- conan::conan_sources("github::mrc-ide/malariasimulation@dfeat/simple_severe)
+src <- conan::conan_sources("github::mrc-ide/malariasimulationfeat/simple_severe")
 
 ctx <- context::context_save(root,
                              sources = sources,

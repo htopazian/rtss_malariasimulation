@@ -207,9 +207,6 @@ high_seas <- get_parameters(list(
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
   clinical_incidence_rendering_max_ages = 100 * year,
-  fvt = 0,
-  v = 0,
-  severe_enabled = T,
   individual_mosquitoes = FALSE))
 
 # seasonal parameters
@@ -223,35 +220,7 @@ low_seas <- get_parameters(list(
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
   clinical_incidence_rendering_max_ages = 100 * year,
-  fvt = 0,
-  v = 0,
-  severe_enabled = T,
   individual_mosquitoes = FALSE))
-
-# # run function
-# runsim <- function(params, starting_EIR){
-#   params <- set_drugs(params, list(AL_params))
-#   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
-#   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), proportions = c(0.25, 0.25, 0.5))
-#   
-#   params <- set_equilibrium(params, starting_EIR)
-#   
-#   run_simulation(warmup + sim_length, params) %>% 
-#     mutate(eir=starting_EIR, timestep=timestep-warmup) %>%
-#     filter(timestep > 0)
-# }
-# 
-# # inputs
-# params <- tibble(params=rep(list(high_seas,high_seas,high_seas,high_seas,
-#                                  low_seas,low_seas,low_seas,low_seas)))
-# 
-# EIR_high <- match[match$seasonality=='highly_seasonal',2]
-# EIR_low <- match[match$seasonality=='seasonal',2]
-# 
-# combo <- cbind(params, rbind(EIR_high, EIR_low)) 
-# 
-# # run model
-# output <- map2_dfr(combo$params, combo$eir, runsim) 
 
 # vaccination times
 first_highseas <- c((peak_season_offset(high_seas)/month) + c(-3.5,-2.5,-1.53,-1.5,-0.5,0.5,1.5)) %>% 
@@ -307,8 +276,55 @@ ggplot(output2) +
 
 Compare a new 'hybrid' strategy (EPI programmatic roll-out with seasonal boosters) to standard EPI and seasonal vaccination strategies. Measure intervention efficacy across seasonal settings, relative to no intervention.
 
-```{r compare, message=FALSE, warning=FALSE, fig.width=7, fig.height=10}
+```{r compare, message=FALSE, warning=FALSE, fig.width=8, fig.height=6}
+output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds')
 
+output2 <- output %>%
+  filter(intervention != 'hybrid' | minwait == 30) %>%
+  mutate(year=ceiling(timestep/365)) %>%
+  rename(seasonality=model) %>%
+  group_by(intervention, seasonality, year, eir, fifth) %>%
+  summarize(cases = sum(cases, na.rm=T)) %>%
+  left_join(match %>% select(pfpr, eir)) %>%
+  mutate(pfpr = factor(pfpr, levels = c(0.1, 0.25, 0.35, 0.55), labels = c('PfPR 10', 'PfPR 25', 'PfPR 35', 'PfPR 55' ))) %>%
+  mutate(intervention = case_when(intervention == 'EPI' ~ 'EPI',
+                                   intervention == 'none' ~ 'none',
+                                   intervention == 'SV 4-dose' ~ 'seasonal 4-dose',
+                                   intervention == 'SV 5-dose' ~ 'seasonal 5-dose',
+                                   intervention == 'hybrid' & fifth == 0 ~ 'hybrid 4-dose',
+                                   intervention == 'hybrid' & fifth == 1 ~ 'hybrid 5-dose'),
+         intervention = factor(intervention, levels = c('none', 'EPI', 'seasonal 4-dose', 'seasonal 5-dose', 'hybrid 4-dose', 'hybrid 5-dose')))
+
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("high_seas", "low_seas")
+
+plotcompare <- function(data, title){
+  ggplot(data=data, aes(x=year, y=cases, color=intervention)) + 
+    geom_line() + 
+    scale_y_continuous(labels = comma) + 
+    scale_x_continuous(breaks = seq(1,15,1)) + 
+    facet_wrap(pfpr ~ ., nrow = 1) +
+    labs(title = title, x='Year', x='Cases', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+    theme_classic()
+}
+
+A <- plotcompare(output2 %>% filter(seasonality=='high_seas'), 'highly seasonal')
+B <- plotcompare(output2 %>% filter(seasonality=='low_seas'), 'seasonal')
+
+A / B + plot_layout(guides = "collect") 
+
+
+ggplot(data=output2, aes(x=year, y=cases, group=interaction(pfpr, intervention), color=intervention)) + 
+  geom_line() + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_continuous(breaks = seq(1,15,1), limits = c(0,20)) + 
+  facet_grid(. ~ seasonality, labeller = labeller(seasonality = seas.labs)) + 
+  labs(x='Year', y='Cases', color='intervention') +
+  theme_classic() + 
+  annotate("text", x = 18, y = 25000, label = 'PfPR 10') + 
+  annotate("text", x = 18, y = 50000, label = 'PfPR 25') + 
+  annotate("text", x = 18, y = 60000, label = 'PfPR 35') + 
+  annotate("text", x = 18, y = 78000, label = 'PfPR 55') 
 
 ```
 

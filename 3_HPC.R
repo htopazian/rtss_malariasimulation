@@ -1,7 +1,7 @@
 # Set-up ----------------------------------------------------------------------
 library(didehpc)
 setwd('M:/Hillary/rtss_malariasimulation')
-# remotes::install_github('mrc-ide/malariasimulation@bug/severe', force=T)
+# remotes::install_github('mrc-ide/malariasimulation@feat/simple_severe', force=T)
 source('./1_functions.R')
 
 options(didehpc.cluster = "fi--didemrchnb",
@@ -15,7 +15,7 @@ root <- "context"
 sources <- c('./1_functions.R')
 
 # src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
-src <- conan::conan_sources("github::mrc-ide/malariasimulation@bug/severe")
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@feat/simple_severe")
 
 ctx <- context::context_save(root,
                              sources = sources,
@@ -53,11 +53,7 @@ high_seas <- get_parameters(list(
   clinical_incidence_rendering_max_ages = 100 * year,
   severe_incidence_rendering_min_ages = 0,
   severe_incidence_rendering_max_ages = 100 * year,
-  fvt = 0,
-  v = 0,
-  individual_mosquitoes = FALSE,
-  # individual_mosquitoes = TRUE,
-  severe_enabled = T))
+  individual_mosquitoes = FALSE))
 
 # seasonal parameters
 low_seas <- get_parameters(list(
@@ -73,11 +69,7 @@ low_seas <- get_parameters(list(
   clinical_incidence_rendering_max_ages = 100 * year,
   severe_incidence_rendering_min_ages = 0,
   severe_incidence_rendering_max_ages = 100 * year,
-  fvt = 0,
-  v = 0,
-  individual_mosquitoes = FALSE,
-  # individual_mosquitoes = TRUE,
-  severe_enabled = T))
+  individual_mosquitoes = FALSE))
 
 params <- tibble(params=rep(list(high_seas,high_seas,high_seas,high_seas,
                                  low_seas,low_seas,low_seas,low_seas)))
@@ -287,7 +279,7 @@ dat2 <- dat %>%
          severe = (n_inc_severe_0_36500/n_0_36500) * human_population,
          severe_p = (p_inc_severe_0_36500/n_0_36500) * human_population,
          deaths = 0.215 * (n_inc_severe_0_36500/n_0_36500) * human_population,
-         deaths_p = 0.215 * (p_inc_severe_0_36500/n_0_36500) * human_population) %>% 
+         deaths_p = 0.215 * (p_inc_severe_0_36500/n_0_36500) * human_population) %>%
   rowwise() %>%
   mutate(dose1 = sum(n_rtss_epi_dose_1,n_rtss_mass_dose_1,na.rm=T),
          dose2 = sum(n_rtss_epi_dose_2,n_rtss_mass_dose_2,na.rm=T),

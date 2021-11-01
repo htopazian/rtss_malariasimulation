@@ -614,10 +614,7 @@ high_seas <- get_parameters(list(
   incidence_rendering_min_ages = 0,
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
-  clinical_incidence_rendering_max_ages = 100 * year,
-  fvt = 0,
-  v = 0,
-  severe_enabled = T))
+  clinical_incidence_rendering_max_ages = 100 * year))
 
 # seasonal parameters
 low_seas <- get_parameters(list(
@@ -629,10 +626,7 @@ low_seas <- get_parameters(list(
   incidence_rendering_min_ages = 0,
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
-  clinical_incidence_rendering_max_ages = 100 * year,
-  fvt = 0,
-  v = 0,
-  severe_enabled = T))
+  clinical_incidence_rendering_max_ages = 100 * year))
 
 # run model
 params <- high_seas
@@ -818,6 +812,47 @@ plotcompare(data, "SV 4-dose synergy + SMC")
 
 data <- baselineA %>% filter(run == "srtss_5_dose_param_mod_smc") %>% full_join(baselineB %>% filter(intervention == 'SV 5-dose synergy + SMC'))
 plotcompare(data, "SV 5-dose synergy + SMC")
+
+```
+
+<br>
+
+# Immunity comparison
+
+```{r immunity comparison, message=FALSE, warning=FALSE, fig.width=12, fig.height=8}
+immunity <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds") %>% 
+  mutate(year=ceiling(timestep/365)) %>%
+  group_by(year, eir) %>%
+  mutate(ica_mean = mean(ica_mean, na.rm=T), 
+         icm_mean = mean(icm_mean, na.rm=T),
+         iva_mean = mean(iva_mean, na.rm=T), 
+         ivm_mean = mean(ivm_mean, na.rm=T)) %>%
+  rename(seasonality=season) %>%
+  left_join(match %>% select(pfpr, eir)) %>% filter(intervention == "none")
+
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
+
+immunityplot <- function(data, var, title){
+ggplot(data=data, aes(x=year, y=var, color=factor(pfpr * 100))) + 
+      geom_line() + 
+      labs(x = expression(paste(italic(Pf),"PR"[2-10])),
+      y = " ",
+      parse=TRUE) +
+      scale_y_continuous() +
+      scale_x_continuous(breaks = seq(1,15,1)) +
+      facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+      labs(title = title, x='year', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+      theme_classic()
+}
+
+
+A <- immunityplot(immunity, immunity$ica_mean, 'ica_mean')
+B <- immunityplot(immunity, immunity$icm_mean, 'icm_mean')
+C <- immunityplot(immunity, immunity$iva_mean, 'iva_mean')
+D <- immunityplot(immunity, immunity$ivm_mean, 'ivm_mean')
+
+(A + B) / (C + D) + plot_layout(guides = "collect")
 
 ```
 
