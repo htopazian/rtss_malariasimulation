@@ -532,7 +532,7 @@ ggplot(data=output3, aes(x=factor(pfpr), y=case_avert, group=intervention, fill=
 
 # 4. Coverage achieved under EPI vs. mass vaccination settings
 
-```{r coverage, message=FALSE, warning=FALSE, fig.width=7, fig.height=10}
+```{r coverage, message=FALSE, warning=FALSE, fig.width=8, fig.height=4}
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds') 
 
 output2 <- output %>%
@@ -547,16 +547,24 @@ output2 <- output %>%
                                    intervention == 'hybrid' & fifth == 1 ~ 'hybrid 5-dose'),
          intervention = factor(intervention, levels = c('EPI', 'seasonal 4-dose', 'seasonal 5-dose', 'hybrid 4-dose', 'hybrid 5-dose'))) %>%
   group_by(intervention, seasonality, pfpr, year) %>%
-  mutate(dose1 = sum(dose1, na.rm=T) / n_0_1825,
-         dose2 = sum(dose2, na.rm=T) / n_0_1825,
-         dose3 = sum(dose3, na.rm=T) / n_0_1825,
-         dose4 = sum(dose4, na.rm=T) / n_0_1825,
-         dose5 = sum(dose5, na.rm=T) / n_0_1825) %>%
-  pivot_longer(cols=c(dose1:dose5), names_to = 'dose', values_to = 'coverage')
+  summarize(dose1 = sum(dose1, na.rm=T) / mean(n_0_1825),
+         dose2 = sum(dose2, na.rm=T) / mean(n_0_1825),
+         dose3 = sum(dose3, na.rm=T) / mean(n_0_1825),
+         dose4 = sum(dose4, na.rm=T) / mean(n_0_1825),
+         dose5 = sum(dose5, na.rm=T) / mean(n_0_1825)) %>%
+  pivot_longer(cols=c(dose1:dose5), names_to = 'dose', values_to = 'coverage') %>%
+  arrange(intervention, seasonality, pfpr, dose, year)
 
 
-ggplot(output2) + 
-  
+ggplot(output2 %>% 
+         filter(pfpr==0.1) %>%
+         filter(intervention %in% c('EPI', 'seasonal 5-dose', 'hybrid 5-dose')), 
+       aes(x=year, y=coverage, color=dose, group=interaction(dose, seasonality))) + 
+  geom_line() + 
+  facet_grid(vars(seasonality), vars(intervention),  labeller = labeller(seasonality = seas.labs)) + 
+  labs(x='Year', y='Coverage', color='Dose') +
+  scale_x_continuous(breaks = seq(1,15,1)) + 
+  theme_classic() 
   
 ```
 
