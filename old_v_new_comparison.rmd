@@ -47,7 +47,7 @@ year <- 365
 month <- year/12
 warmup <- 4 * year
 sim_length <- 3 * year
-human_population <- 100000
+human_population <- 1000
 starting_EIR <- 10
 
 # set parameters
@@ -75,7 +75,7 @@ simparams <- set_equilibrium(simparams, starting_EIR)
 output <- run_simulation(warmup + sim_length, simparams)
 
 # average EIRs per year after introducing seasonality
-output %>% mutate(year = ceiling(timestep/365)) %>% group_by(year) %>% summarize(average_eir=mean(EIR)*365/human_population) %>% 
+output %>% mutate(year = ceiling(timestep/365)) %>% group_by(year) %>% summarize(average_eir=mean(EIR_All)*365/human_population) %>% 
  kbl(escape = F, align = "c") %>%
  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
 
