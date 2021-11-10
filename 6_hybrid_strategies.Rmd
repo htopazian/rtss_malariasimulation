@@ -42,7 +42,7 @@ blockquote {
 
 1. Code up a new 'hybrid' strategy: EPI programmatic roll-out of RTS,S doses 1-3 with seasonal boosters. Compare this hybrid strategy to standard EPI and seasonal vaccination strategies by measuring intervention efficacy across seasonal settings.
 
-2. Explore the minimum gap between receiving the 3rd dose and the first booster dose under the hybrid strategy. How many children will go through their first high transmission season unvaccinated? 
+2. Explore the minimum gap between receiving the 3rd dose and the first booster dose under the hybrid strategy. How many children will go through their first high transmission season un-vaccinated? 
 
 3. Explore the advantages of adding a 5th dose. 
 
@@ -65,7 +65,7 @@ Parameters used in `malariasimulation`:
   
   * **Human population** = 100,000. Average_age = 8453.323.
   
-  * **Warmup** = 20 years for malariasimulation to stabilize at EIR equilibrium
+  * **Warm-up** = 20 years for malariasimulation to stabilize at EIR equilibrium
   
   * **Simulation length** = 15 years
   
@@ -80,13 +80,13 @@ Parameters used in `malariasimulation`:
     + coverage = 0.45
   
   * **RTS,S** 
-    + boosters: given 12 months after dose 3 (booster 1) and 24 months after dose 3 (booster 2)
-    + booster coverage = 0.80
+    + dose 1-3 coverage = 0.80 (of target population)
+    + booster coverage = 0.80 (of vaccinated population)
     + boosted antibody mean and stdev = 5.56277, 0.35 
-    + updated antibody mean and stdev = 6.37008, 0.35 (and synergy)
-    + for synergy model: rtss_vmax = 0.911028, rtss_alpha = 0.75303, rtss_beta = 62.8525
+    + updated antibody mean and stdev = 6.37008, 0.35 (and synergy) <span style="color: red;">curently OFF</span>
+    + for synergy model: rtss_vmax = 0.911028, rtss_alpha = 0.75303, rtss_beta = 62.8525 <span style="color: red;">curently OFF</span>
    
-  * **SMC**
+  * **SMC** <span style="color: red;">curently OFF</span>
     + drug = SP-AQ
     + drug_efficacy = 0.75
     + drug_rel_c = 0.32
@@ -97,13 +97,12 @@ Parameters used in `malariasimulation`:
     + max-age = 5 years
     + synergy drug_prophylaxis_shape = 2.955348
     + synergy drug_prophylaxis_scale = 58.99686
-    + 4 monthly rounds, with timing based on seasonality cuves
+    + 4 monthly rounds, with timing based on seasonality curves
     
   * **Outcomes**
     + unless otherwise stated events averted are calculated relative to a baseline no-vaccination scenario
     + clinical incidence calculated among individuals 0-100 years
     + severe malaria enabled
-    + fvt (reduced probability of death due to treatment) and v (mortality scaling factor from severe disease) set to 0
     + deaths - calculating deaths from severe disease use the following: mortality = 0.215 * severe incidence
 
 <br>
@@ -118,7 +117,7 @@ The blue line in the following plots displays results from `malariaEquilibrium`,
 # loop over malariasimulation runs
 init_EIR <- c(0.01, 0.1, seq(1,9,1), seq(10, 100, by=5)) # set EIR values
 
-# files ending in F are for individual_mosquitoes = F. Endings in T are for individiaul_mosquitoes = T. 
+# files ending in F are for individual_mosquitoes = F. Endings in T are for individual_mosquitoes = T. 
 EIR_prev1 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds') %>% mutate(season = 'high seasonality')
 
 EIR_prev2 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds') %>% mutate(season = 'low seasonality')
@@ -351,6 +350,8 @@ compareplot(output3, output3$cases, 'Clinical cases (children 0-5 years)') /
 
 ```
 
+* calculate vaccine efficacy (Risk among unvaccinated group − risk among vaccinated group)  / Risk among unvaccinated group
+
 <br>
 
 # 2. Minimum wait time between 3rd and 4th dose
@@ -477,7 +478,7 @@ none <- output %>% filter(grepl('none', file)) %>%
   
 # data manipulation
 output2 <- output %>% 
-  # limit dataset to SV and hybrid scenarios and rename
+  # limit data set to SV and hybrid scenarios and rename
   filter(grepl('SV', intervention) | (grepl('hybrid', intervention) & minwait == 30)) %>%
   mutate(intervention = case_when(intervention == 'SV 4-dose' ~ 'seasonal 4-dose',
             intervention == 'SV 5-dose' ~ 'seasonal 5-dose',
@@ -533,11 +534,13 @@ ggplot(data=output3, aes(x=factor(pfpr), y=case_avert, group=intervention, fill=
 
 We don't yet have the correct outputs needed to calculate the % vaccinated in our target age group. To begin to examine this, sum up the number of doses of RTS,S given out each year and divide by the number of kids ages 0-5 years.
 
-Check wiht Giovanni: 
+Check with Giovanni: 
 
 - Can we set up a way to output the number of kids tagged as vaccinated within an age group for each time step? 
  
 - Check that dose 4 and dose 5 have the same coverage rate
+
+- See if we can calculate vaccine indirect effects
 
 
 ```{r coverage, message=FALSE, warning=FALSE, fig.width=8, fig.height=4}

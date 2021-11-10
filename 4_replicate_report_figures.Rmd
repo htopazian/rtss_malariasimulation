@@ -995,3 +995,94 @@ cbind(age,r,prop)
   * Report states that 'events averted are presented as the cumulative number of events averted over a 15-year period following the introduction of vaccine dose 3.' In malariasimulation I am summing events over the entire 15-year simulation length. 
     
   * SMC rounds - the old model runs 3 rounds, but it was supposed to be 4, Hayley will send an updated rds file.
+  
+  
+```{r severe check, fig.width=10, fig.height=4}
+
+baselineA <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/Hayley_report/Part_1/combined_outputs_raw.RDS')
+
+baselineA <- baselineA %>% 
+  dplyr::select(-contains("prev_2_10")) %>% 
+  mutate_at(vars(contains("smooth")), as.numeric) %>% 
+  # keep smoothed output and ignore intervention numbers for now
+  dplyr::select(run, pfpr, seasonality, draw, coverage, year, dplyr::contains("smooth")) %>% 
+  #-convert from wide to long format
+  tidyr::pivot_longer(-c(year, run, pfpr, seasonality, draw, coverage), names_to = "var", values_to = "y") %>%
+  #-remove _smooth subscript for neater names
+  dplyr::mutate(var = stringr::str_remove(var, "_smooth")) %>%
+  #-isolate lower and upper age bounds from variable names
+  tidyr::separate(var, into = c("type", "age_lower", "age_upper"), sep = "_", convert = TRUE) %>%
+  #-convert back to wide
+  tidyr::pivot_wider(id_cols = c(run, pfpr, seasonality, draw, coverage, year, age_lower, age_upper), names_from = type, values_from = y) %>% 
+  #-replace -999 / INF/ NA values in output
+  dplyr::mutate(prev = ifelse(prev == -999, 0, prev),
+                inc = ifelse(inc == -999, 0, inc),
+                inc = ifelse(inc == Inf, 0, inc),
+                sev = ifelse(sev == -999, 0, sev),
+                sev = ifelse(sev == Inf, 0, sev),
+                prop = ifelse(prop == -999, 0, prop)) %>%
+  tidyr::replace_na(
+    list( prev = 0, inc = 0, sev = 0, prop = 0)) %>% 
+  #-mortality rate
+  mutate(mort = (1-(treatment_scaler * 0)) * scaler * sev) %>% 
+  #-convert burden (incidence * proportion aged * population size)
+  #-case load is weighted by proportion in age range in population * total size
+  mutate(cases            = round(inc * prop * population_size), 
+         severe           = round(sev * prop * population_size), 
+         hospitalisations = round(severe * tx), 
+         deaths           = round(mort * prop * population_size)) %>%
+  filter(year > 0) %>%
+  filter(coverage %in% c(0.8,0)) %>%
+  filter(age_lower %in% c(seq(0,4,1), seq(25,49,1))) %>%
+  mutate(under5 = ifelse(age_lower >= 0 & age_lower <5, 1, 0)) %>% 
+  group_by(run, pfpr, seasonality, coverage, draw, year, under5) %>%
+  summarise(across(cases:deaths, sum)) %>%
+  ungroup() %>% group_by(run, pfpr, seasonality, coverage, draw, year, under5) %>%
+  summarise(severe = sum(severe, na.rm=T)) %>%
+  filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>%
+  mutate(s05 = ifelse(under5==1, severe, NA),
+         s2550 = ifelse(under5==0, severe, NA)) %>% select(-under5) %>%
+  summarise(s05 = sum(s05, na.rm=T),
+            s2550 = sum(s2550, na.rm=T)) %>% mutate(model='MalariaLaunchR') %>% ungroup() 
+
+baselineB <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/severe_test.rds') %>%
+  mutate(year=ceiling(timestep/365)) %>%
+  rename(seasonality=season) %>%
+  group_by(intervention, eir, seasonality, year) %>%
+  summarize(s05 = sum(p_inc_severe_0_1825, na.rm=T),
+            s2550 = sum(p_inc_severe_9125_18250, na.rm=T)) %>%
+  left_join(match %>% select(pfpr, eir)) %>% 
+  mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr), model = 'malariasimulation')
+
+dat <- baselineA %>% filter(run == "baseline") %>% full_join(baselineB %>% filter(intervention == 'none'))
+
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
+
+A <- ggplot() + 
+  #geom_line(data=dat, aes(x=year, y = s05, color=factor(pfpr * 100))) + 
+  geom_line(data=dat, aes(x=year, y = s2550, color=factor(pfpr * 100), lty=model)) + 
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_continuous(breaks = seq(1,15,1)) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  labs(x='year', title='25-50 years', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  theme_classic()
+
+B <- ggplot() + 
+  geom_line(data=dat, aes(x=year, y = s05, color=factor(pfpr * 100), lty=model)) + 
+  #geom_line(data=dat, aes(x=year, y = s2550, color=factor(pfpr * 100))) + 
+  labs(x = expression(paste(italic(Pf),"PR"[2-10])), 
+       y = " ",
+       parse=TRUE) + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_continuous(breaks = seq(1,15,1)) + 
+  facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
+  labs(x='year', title='0-5 years', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  theme_classic()
+
+B + A + plot_layout(guides = 'collect')
+
+```
