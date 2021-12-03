@@ -14,8 +14,8 @@ root <- "context"
 
 sources <- c('./1_functions.R')
 
-# src <- conan::conan_sources("github::mrc-ide/malariasimulation@dfeat/simple_severe)
-src <- conan::conan_sources("github::mrc-ide/malariasimulationfeat/simple_severe")
+# src <- conan::conan_sources("github::mrc-ide/malariasimulation@feat/simple_severe)
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@feat/simple_severe")
 
 ctx <- context::context_save(root,
                              sources = sources,
@@ -207,3 +207,54 @@ dat3 <- dat2 %>% filter(intervention != 'none') %>% left_join(none) %>%
             deaths_averted_per_100000_fvp = (base_death - deaths)/dosecomplete * human_population)
 
 saveRDS(dat3,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_averted.rds")
+
+
+# Severe cases -----------------------------------------------------------------
+# NO INTERVENTION
+t <- obj$enqueue_bulk(combo, runsim_severe)
+t$status()
+
+# read in files
+require(data.table)
+library(tidyverse)
+
+files <- list.files(path = "M:/Hillary/rtss_malariasimulation/rds/severe", pattern = "*.rds", full.names = TRUE)
+dat_list <- lapply(files, function (x) data.table(readRDS(x)))
+
+dat <- rbindlist(dat_list, fill = TRUE, idcol="file", use.names = T) %>% 
+  mutate(file = files[file],
+         file = gsub("M:/Hillary/rtss_malariasimulation/rds/severe/","",file),
+         intervention = "none", 
+         year=ceiling(timestep/365)) %>%
+  group_by(model, eir, year) %>%
+  summarise(across(grep('p_inc_severe_',names(.)), sum, na.rm=T), across(grep('n_',names(.)), mean, na.rm=T)) 
+
+cases <- dat %>% select(model, eir, year, contains('p_inc_severe')) %>% 
+  pivot_longer(4:103, names_to="age", values_to='s_cases') %>%
+  mutate(age = gsub("p_inc_severe_", "", age))
+
+n <- dat %>% select(model, eir, year, contains('n_'), -n_bitten, -contains(c('n_inc', 'fun', 'detect')), -n_treated, -n_infections, -n_0_1825, -n_0_36500, -n_730_3650)  %>%
+  pivot_longer(4:103, names_to="age", values_to='n') %>%
+  mutate(age = gsub("n_", "", age))
+
+full <- cases %>% left_join(n, by=c("model", "eir", "year", "age")) %>% 
+  separate(age, c("age_low", "age_high"), sep = '_') %>% # separate age into two variables
+  mutate(s_inc = s_cases / n,
+         age_high = as.numeric(age_high)/365,
+         age_low = as.numeric(age_low)/365) %>% ungroup()
+           
+# test case for summarize(across())
+# a <- seq(0,10,1) %>% as.numeric()
+# b <- seq(0,10,1) %>% as.numeric()
+# c <- c(NA,seq(1,10,1)) %>% as.numeric()
+# group <- c(rep('A',5), rep('B',6))
+#   
+# test <- cbind(a,b,c,group) %>% as_tibble() %>% mutate(across(a:c, as.numeric))
+# 
+# test2 <- test %>% group_by(group) %>% summarize(across(a, sum, na.rm=T), across(b:c, mean, na.rm=T))
+# 
+# test2
+
+
+saveRDS(full,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_severe_all.rds")
+

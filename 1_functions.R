@@ -305,3 +305,28 @@ runsim_hybrid <- function(params, minwait, starting_EIR, warmup, sim_length, sea
   
   saveRDS(output, paste0('./rds/HPC/hybrid_',minwait,'wait_',season,starting_EIR,'_',fifth,'.rds'))
 }
+
+# SEVERE age breakdown -------------------------------------------------------------
+runsim_severe <- function(params, starting_EIR, warmup, sim_length, season){
+  year <- 365
+  month <- year/12
+  
+  params$severe_incidence_rendering_min_ages = seq(0,99,1)*year
+  params$severe_incidence_rendering_max_ages = seq(1,100,1)*year
+  
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
+  
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  params <- set_equilibrium(params, starting_EIR)
+  output <- run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+  
+  saveRDS(output, paste0('./rds/severe/none_',season,starting_EIR,'.rds'))
+}

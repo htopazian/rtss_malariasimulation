@@ -16,7 +16,6 @@ output:
 # packages
 library(tidyverse)
 library(fuzzyjoin)
-library(cowplot)
 library(plotly)
 library(kableExtra)
 library(malariasimulation)

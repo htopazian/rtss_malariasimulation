@@ -1,5 +1,5 @@
 ---
-title: "Hybrid RTS,S strategies"
+title: "RTS,S strategies"
 author: "Hillary Topazian"
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output: 
@@ -32,7 +32,7 @@ blockquote {
     padding: 10px 20px;
     margin: 0 0 20px;
     font-size: 12px;
-    border-left: 5px solid #eee;
+    border-left: 5px solid
 }
 ```
 
@@ -40,17 +40,17 @@ blockquote {
 
 # Objectives
 
-1. Code up a new 'hybrid' strategy: EPI programmatic roll-out of RTS,S doses 1-3 with seasonal boosters. Compare this hybrid strategy to standard EPI and seasonal vaccination strategies by measuring intervention efficacy across seasonal settings.
+- Code up a new 'hybrid' strategy: EPI programmatic roll-out of RTS,S doses 1-3 with seasonal boosters. Compare this hybrid strategy to standard EPI and seasonal vaccination strategies by measuring intervention efficacy across seasonal settings.
 
-2. Explore the minimum gap between receiving the 3rd dose and the first booster dose under the hybrid strategy. How many children will go through their first high transmission season un-vaccinated? 
+- Explore the minimum gap between receiving the 3rd dose and the first booster dose under the hybrid strategy. How many children will go through their first high transmission season un-vaccinated? 
 
-3. Explore the advantages of adding a 5th dose. 
+- Explore the advantages of adding a 5th dose. 
 
-4. Determine the coverage achieved (% vaccinated) under EPI vs. mass vaccination settings.  
+- Determine the coverage achieved (% vaccinated) under EPI vs. mass vaccination settings.  
 
-5. Measure the relative cost-effectiveness of investing in ITNs vs. RTS,S. 
+- Measure the relative cost-effectiveness of investing in ITNs vs. RTS,S. 
 
-6. Other ideas: equity in coverage gaps, malariatools (Tom & Ellie), incorporating seasonal births
+- Other ideas: equity in coverage gaps, malariatools (Tom & Ellie), incorporating seasonal births
 
 <br>
 
@@ -65,11 +65,11 @@ Parameters used in `malariasimulation`:
   
   * **Human population** = 100,000. Average_age = 8453.323.
   
-  * **Warm-up** = 20 years for malariasimulation to stabilize at EIR equilibrium
+  * **Warm-up period** = 20 years for malariasimulation to stabilize at EIR equilibrium
   
   * **Simulation length** = 15 years
   
-  * **Species** = 25% arabiensis, 25% funestus, 50% gambiae. Bednet and indoor parameters checked and match. No info for IRS parameters since intervention is not turned on.
+  * **Species** = 25% arabiensis, 25% funestus, 50% gambiae. 
   
   * **Treatment** 
     + drug = AL
@@ -83,8 +83,6 @@ Parameters used in `malariasimulation`:
     + dose 1-3 coverage = 0.80 (of target population)
     + booster coverage = 0.80 (of vaccinated population)
     + boosted antibody mean and stdev = 5.56277, 0.35 
-    + updated antibody mean and stdev = 6.37008, 0.35 (and synergy) <span style="color: red;">curently OFF</span>
-    + for synergy model: rtss_vmax = 0.911028, rtss_alpha = 0.75303, rtss_beta = 62.8525 <span style="color: red;">curently OFF</span>
    
   * **SMC** <span style="color: red;">curently OFF</span>
     + drug = SP-AQ
@@ -107,17 +105,19 @@ Parameters used in `malariasimulation`:
 
 <br>
 
-## Link Pf prev 2-10 to EIR
+## Link PfPR<sub>2-10 to EIR
 
-`malariasimulation` only accepts EIR value inputs using the function `set_equilibrium()`. Here I've run a range of `malariasimulation` outputs to back link PfPR<sub>2-10</sub> values to EIR outputs. Separate matching processes must take place for each seasonality setting. Essentially, we set our baseline parameters, and then run multiple simulations at various EIRs using those baseline settings. We then create a best-fit line through these points, and match with PfPR<sub>2-10</sub>. 
+`malariasimulation` only accepts EIR inputs using the function `set_equilibrium()`. Here I've run a range of outputs to back link PfPR<sub>2-10</sub> values to EIR. Essentially, we set our baseline parameters and then run multiple simulations at various EIRs. We then create a best-fit line through these points, and match with PfPR<sub>2-10</sub> values. Separate matching processes must take place for each seasonality setting.
 
-The blue line in the following plots displays results from `malariaEquilibrium`, which end up underestimating the EIRs to be used in the model. The table below the plot shows the EIRs which need to be used in `malariasimulation` to obtain accurate results for each PfPR<sub>2-10</sub> setting.
+The blue line in the following plots displays results from `malariaEquilibrium`, which underestimate the EIRs to be used in the model once seasonality and treatment / ITNs are in place. The table below the plot shows the EIRs which need to be used in `malariasimulation` to obtain accurate results for each PfPR<sub>2-10</sub> of interest.
 
-``` {r prevmatch, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+``` {r prevmatch, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 # loop over malariasimulation runs
 init_EIR <- c(0.01, 0.1, seq(1,9,1), seq(10, 100, by=5)) # set EIR values
 
-# files ending in F are for individual_mosquitoes = F. Endings in T are for individual_mosquitoes = T. 
+# files are created in the '2_PfPR_match_eir.R' script
+# files ending in F are for individual_mosquitoes = F 
+# endings in T are for individual_mosquitoes = T
 EIR_prev1 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds') %>% mutate(season = 'high seasonality')
 
 EIR_prev2 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds') %>% mutate(season = 'low seasonality')
@@ -147,7 +147,8 @@ prevmatch <- as_tibble(cbind(eir,prev))
 # plot
 colors <- c("malariaEquilibrium" = "blue", "malariasimulation" = "red")
 
-p <- ggplot(data=EIR_prev) + 
+p <- 
+  ggplot(data=EIR_prev) + 
   geom_point(aes(x=init_EIR, y=prev), color='black') + 
   stat_smooth(aes(x=init_EIR, y=prev, color='malariasimulation'), method = 'gam', n=1000) + 
   geom_line(data=prevmatch, aes(x=eir, y=prev, color = 'malariaEquilibrium')) + 
@@ -162,7 +163,9 @@ p
 p2 <- ggplot_build(p)
 p2 <- p2$data[[2]]
 
-p2 <- p2 %>% as_tibble() %>% select(x,y,PANEL) %>% rename(init_EIR=x, pred=y, season=PANEL) %>%
+p2 <- p2 %>% as_tibble() %>% 
+  select(x,y,PANEL) %>% 
+  rename(init_EIR=x, pred=y, season=PANEL) %>%
   mutate(season=ifelse(season==1,'high seasonality','low seasonality'))
 
 # Pre-intervention baseline PfPR2-10 starting at values 10, 25, 35, 55 
@@ -170,25 +173,26 @@ PfPR <- as_tibble_col(c(.10, .25, .35, .55), column_name="pfpr")
 
 # match via stat_smooth predictions
 match <- PfPR %>%
-  fuzzyjoin::difference_left_join(p2, by=c("pfpr"="pred"), 
-                                  max_dist=1, distance_col="dist") %>%
+  fuzzyjoin::difference_left_join(p2, by=c("pfpr"="pred"), max_dist=1, distance_col="dist") %>%
   group_by(pfpr, season) %>% slice_min(dist) %>% 
   rename(eir=init_EIR) %>% 
-  mutate(eir = as.numeric(signif(eir,3)), seasonality=case_when(season=='high seasonality'~'highly_seasonal', TRUE~'seasonal')) %>% ungroup() %>% select(-season)
+  mutate(eir = as.numeric(signif(eir,3)), seasonality=case_when(season=='high seasonality'~'highly_seasonal', TRUE~'seasonal')) %>% 
+  ungroup() %>% select(-season)
 
 # print table
-match %>% select(pfpr, eir, seasonality) %>% kbl(col.names = c('PfPR', 'EIR', 'seasonality'), digits=2, escape = F, align = "c") %>%
-  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T))
+match %>% select(pfpr, eir, seasonality) %>% 
+  kbl(col.names = c('PfPR', 'EIR', 'seasonality'), digits=2, escape=F, align="c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread=T), full_width = F)
 
 ```
 
 <br>
 
-## Map seasonality and RTS,S
+## Plot seasonality and interventions
 
-In the `malariasimulation` runs for this project, seasonal RTS,S dose #3 and booster dose #1 efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. RTS,S is shown in blue and SMC in red below. 
+**Figure 1.** Clinical incidence output from `malariasimulation` runs over highly seasonal and seasonal settings for a variety of transmission intensities. Model runs include seasonality and treatment, but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
 
-```{r seasonalitymalariasimulation, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+```{r seasonalitymalariasimulation, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds')
 
@@ -266,8 +270,8 @@ ggplot(output2) +
   scale_y_continuous(limits=c(0,0.25),breaks=c(0,0.1,0.2)) +
   scale_x_continuous(limits=c(1,12),breaks=seq(1,12,1)) + 
   scale_fill_manual('Intervention', values = c('blue', 'red'), 
-          guide=guide_legend(override.aes = list(colour=c("blue", "red")), order=2),
-          labels=c("RTS,S", "SMC")) + 
+       guide=guide_legend(override.aes = list(colour=c("blue", "red")), order=2),
+       labels=c("RTS,S", "SMC")) + 
   facet_grid(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) + 
   theme_classic()
 
@@ -275,13 +279,66 @@ ggplot(output2) +
 
 <br> 
 
-# 1. Hybrid strategy
+## Age distribution of severe cases
 
-To code up a new 'hybrid' strategy, we implement EPI programmatic roll-out of RTS,S doses 1-3 at ages 6, 7.5, and 9 months, with seasonal boosters given at the next high transmission season following dose 3 as indicated above, regardless of age. There is a minimum wait time of 1 month between receiving dose 3 and the first booster. 
+**Figure 2.** Distribution of severe cases by age and transmission setting. Age represents the upper end of a 1 year age-group. E.g. age "5" represents children ages 4-5. Results are drawn from a baseline model which includes no RTS,S or SMC intervention.
 
-This plot shows the number of cases per year under each intervention strategy at each seasonal and PfPR<sub>2-10</sub> setting. All of the interventions reduce cases in children 0-5 years, but the seasonal 5-dose and hybrid 5-dose appear to do best.
+```{r age dist severe, message=FALSE, warning=FALSE, fig.width=7, fig.height=3, fig.align="center"}
+# read in data from HPC runs
+output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_severe_all.rds') %>% 
+  group_by(model, eir, age_low, age_high) %>%
+  summarize(across(s_cases:s_inc, mean, na.rm=T)) %>%
+  left_join(match %>% select(pfpr, eir))
 
-```{r compare, message=FALSE, warning=FALSE, fig.width=8, fig.height=6}
+seas.labs <- c("Highly Seasonal", "Seasonal")
+names(seas.labs) <- c("high_seas", "low_seas")
+
+# plot
+ggplot(output) + 
+  geom_line(aes(x=age_high, y=s_cases, color=as.factor(pfpr)), size=1) + 
+  facet_wrap(.~model, labeller = labeller(model = seas.labs)) + 
+  labs(x = "Age (years)",
+       y = "Severe cases",
+       color = expression(paste(italic(Pf),"PR"[2-10])),
+       parse=TRUE) + 
+  scale_x_continuous(breaks = seq(0,20,1), labels = c(0, rep("",4), "5", rep("",4), "10", rep("",4), "15", rep("",4), "20") ) + 
+  theme_classic() + 
+  coord_cartesian(xlim=c(0,20))
+
+```
+
+<br> 
+
+# 1. RTS,S strategies
+
+**Table 1.** Description of RTS,S implementation strategies.
+
+```{r intervention table, message=FALSE, warning=FALSE}
+# table of RTS,S strategies - manual input
+scenario <- c("Age-based vaccination", "Calendar-based vaccination", "Hybrid vaccination")
+
+dose13 <- c("6, 7.5, and 9 months of age", "3 months before the high transmission season, among those 5-17 months of age", "6, 7.5, and 9 months of age")
+
+dose4 <- c("27 months of age", "12 months following dose 3", "One month before the high transmission season")
+  
+dose5 <- c("-", "12 months following dose 4 (optional)", "12 months following dose 4 (optional)")
+  
+notes <- c("-", "-", "Vary the minimum wait time between dose 3 and dose 4")
+
+# create table with kable()
+x <- knitr::kable(cbind(scenario, dose13, dose4, dose5, notes), "html", align=rep('l', 5), col.names = c("scenario", "doses 1-3", "dose 4", "dose 5", "additional analyses")) %>% row_spec(0, align = "c") %>% kable_styling(bootstrap_options = c("striped", "hover", fixed_thread=T), full_width = F)
+
+add_header_above(x, c(" ", "Vaccination schedule" = 3, " "))
+
+```
+
+<br>
+
+# 2. Cases
+
+**Figure 3a.** The number of cases per year under each intervention strategy, stratified by season and PfPR<sub>2-10</sub> transmission setting. 
+
+```{r compare, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds')
 
@@ -326,9 +383,26 @@ ggplot(data=output2, aes(x=year, y=cases, group=interaction(pfpr, intervention),
 
 ```
 
-The following plot compares clinical cases, severe cases, and deaths over the whole 15 simulation period, stratified by intervention.
+<br>
 
-```{r compare2, message=FALSE, warning=FALSE, fig.width=8, fig.height=10}
+**Figure 3b.** The number of cases per year under each intervention strategy, stratified by season and PfPR<sub>2-10</sub> transmission setting. 
+
+```{r compare2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
+
+ggplot(data=output2, aes(x=year, y=cases, group=interaction(pfpr, intervention), color=intervention)) + 
+  geom_line() + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_continuous(breaks = seq(1,15,1), limits = c(0,20)) + 
+  facet_grid(pfpr ~ seasonality, labeller = labeller(seasonality = seas.labs), scales='free') + 
+  labs(x='Year', y='Cases (0-5 years)', color='Intervention') +
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90, hjust=1, vjust=0.5)) 
+
+```
+
+**Figure 4.** Averted - The following plot compares clinical cases, severe cases, and deaths over the whole 15 simulation period, stratified by intervention.
+
+```{r compare3, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.align="center"}
 # data manipulation
 output3 <- output2 %>% 
   group_by(intervention,seasonality, pfpr) %>%  
@@ -350,15 +424,14 @@ compareplot(output3, output3$cases, 'Clinical cases (children 0-5 years)') /
 
 ```
 
-* calculate vaccine efficacy (Risk among unvaccinated group − risk among vaccinated group)  / Risk among unvaccinated group
 
 <br>
 
 # 2. Minimum wait time between 3rd and 4th dose
 
-Now we will explore the minimum gap between receiving the 3rd dose and the first booster dose under the hybrid strategy. Until now we have set this minimum gap at 1 month. Below I am plotting the number of cases among children 0-5 years, stratified by PfPR<sub>2-10</sub> and seasonality. The transparency of each line represents the minimum gap time, ranging from 0 to 11 months.
+**Figure 5.** Exploring the minimum wait time between receiving the 3rd dose and the first booster dose under the hybrid strategy. Until now we have set this minimum gap at 1 month. The outcome is the number of cases among children 0-5 years, stratified by PfPR<sub>2-10</sub> and seasonality. The transparency of each line represents the minimum wait time, ranging from 0 to 11 months.
 
-```{r wait time, message=FALSE, warning=FALSE, fig.width=8, fig.height=5}
+```{r wait time, message=FALSE, warning=FALSE, fig.width=8, fig.height=5, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds') 
 
@@ -389,7 +462,9 @@ ggplot(data=output2, aes(x=year, y=cases, group=interaction(eir,minwait), color=
 
 There doesn't appear to be very much difference between low and high wait times, and indeed, when we look at summarized counts, there is little difference in the number of cases with different wait times:
 
-```{r wait time2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6}
+**Table 2.** Number of clinical cases as the minimum wait time varying between receiving the 3rd dose and the first booster dose under the hybrid strategy. The outcome is the number of cases among children 0-5 years under a PfPR<sub>2-10</sub> = 0.55 transmission setting, stratified by and seasonality. 
+
+```{r wait time2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
 # table from plot ^ 
 output2 %>% 
   filter(pfpr==0.55) %>%
@@ -411,7 +486,7 @@ output2 %>%
 
 Now we will explore the advantages of adding a fifth dose relative to four doses. To start, plot the number of doses given out under each strategy over the first 36 months to make sure the model is parameterized correctly. Here, I am limiting data to scenarios under PfPR<sub>2-10</sub> 0.55, and a hybrid strategy with a minimum wait time of 1 month between 3rd and 4th doses. 
 
-```{r fifth dose, message=FALSE, warning=FALSE, fig.width=10, fig.height=6}
+```{r fifth dose, message=FALSE, warning=FALSE, fig.width=10, fig.height=6, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds')
 
@@ -468,7 +543,7 @@ plotvax('high_seas') / plotvax('low_seas') + plot_layout(guides = "collect")
 
 Now compare the seasonal and hybrid strategies with a 4-dose vs. 5-dose regimen. Below we are plotting the number of cases averted (as compared to no intervention) under each strategy per year. It appears that the seasonal 5-dose strategy performs best, averting the most cases per year in all settings.
 
-```{r fifth dose2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6}
+```{r fifth dose2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
 # calculate baseline cases
 none <- output %>% filter(grepl('none', file)) %>% 
   mutate(year=ceiling(timestep/365)) %>%
@@ -512,7 +587,7 @@ ggplot(data=output2, aes(x=year, y=case_avert, group=interaction(pfpr, intervent
 ```
 When we look at cases averted across all 15 years of the simulation, the seasonal 5-dose strategy averts the most cases except in the seasonal PfPR<sub>2-10</sub> 0.1 setting. The seasonal 4-dose and the hybrid 5-dose strategies are close, and are slightly better strategies in different settings.
 
-```{r fifth dose3, message=FALSE, warning=FALSE, fig.width=8, fig.height=4}
+```{r fifth dose3, message=FALSE, warning=FALSE, fig.width=8, fig.height=4, fig.align="center"}
 # data manipulation
 output3 <- output2 %>% 
   group_by(intervention,seasonality, pfpr) %>%  
@@ -543,7 +618,7 @@ Check with Giovanni:
 - See if we can calculate vaccine indirect effects
 
 
-```{r coverage, message=FALSE, warning=FALSE, fig.width=8, fig.height=4}
+```{r coverage, message=FALSE, warning=FALSE, fig.width=8, fig.height=4, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds') 
 
@@ -587,7 +662,7 @@ ggplot(output2 %>%
 
 A continuation of [Pete's paper](https://gh.bmj.com/content/2/1/e000090)? 
 
-```{r cost effectiveness, message=FALSE, warning=FALSE, fig.width=7, fig.height=10}
+```{r cost effectiveness, message=FALSE, warning=FALSE, fig.width=7, fig.height=10, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds') 
 
@@ -595,8 +670,14 @@ output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/r
 
 <br>
 
-# To do
+# Other ideas
 
- Other ideas: equity in coverage gaps, malariatools (Tom & Ellie), incorporating seasonal births
+* equity in coverage gaps
+
+* malariatools (Tom & Ellie)
+
+* incorporating seasonal births
+
+* calculate vaccine efficacy (Risk among unvaccinated group − risk among vaccinated group)  / Risk among unvaccinated group
 
 

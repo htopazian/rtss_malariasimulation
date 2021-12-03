@@ -1,8 +1,7 @@
 # Set-up ----------------------------------------------------------------------
 library(didehpc)
 setwd('M:/Hillary/rtss_malariasimulation')
-# remotes::install_github('mrc-ide/malariasimulation@test/cutoff_immunity', force=T)
-# remotes::install_github('mrc-ide/malariaEquilibrium@feat/severe', force=TRUE)
+# remotes::install_github('mrc-ide/malariasimulation@feat/simple_severe', force=T)
 source('./1_functions.R')
 
 options(didehpc.cluster = "fi--didemrchnb",
@@ -16,7 +15,7 @@ root <- "context"
 sources <- c('./1_functions.R')
 
 # src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
-src <- conan::conan_sources("github::mrc-ide/malariasimulation@test/cutoff_immunity")
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@feat/simple_severe")
 
 ctx <- context::context_save(root,
                              sources = sources,
@@ -52,8 +51,10 @@ high_seas <- get_parameters(list(
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
   clinical_incidence_rendering_max_ages = 100 * year,
-  severe_incidence_rendering_min_ages = 0,
-  severe_incidence_rendering_max_ages = 100 * year,
+  # severe_incidence_rendering_min_ages = 0,
+  # severe_incidence_rendering_max_ages = 100 * year,
+  severe_incidence_rendering_min_ages = c(0,25)*year,
+  severe_incidence_rendering_max_ages = c(5,50)*year,
   individual_mosquitoes = FALSE))
 
 # seasonal parameters
@@ -68,8 +69,10 @@ low_seas <- get_parameters(list(
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
   clinical_incidence_rendering_max_ages = 100 * year,
-  severe_incidence_rendering_min_ages = 0,
-  severe_incidence_rendering_max_ages = 100 * year,
+  # severe_incidence_rendering_min_ages = 0,
+  # severe_incidence_rendering_max_ages = 100 * year,
+  severe_incidence_rendering_min_ages = c(0,25)*year,
+  severe_incidence_rendering_max_ages = c(5,50)*year,
   individual_mosquitoes = FALSE))
 
 params <- tibble(params=rep(list(high_seas,high_seas,high_seas,high_seas,
@@ -270,6 +273,7 @@ dat <- rbindlist(dat_list, fill = TRUE, idcol="file") %>%
                             model=='low_seas'~"seasonal"))
 
 saveRDS(dat,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_raw.rds")
+#saveRDS(dat,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/severe_test.rds")
 
 summary(dat$n_0_36500)
 
