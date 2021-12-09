@@ -40,17 +40,13 @@ blockquote {
 
 # Objectives
 
-- Code up a new 'hybrid' strategy: EPI programmatic roll-out of RTS,S doses 1-3 with seasonal boosters. Compare this hybrid strategy to standard EPI and seasonal vaccination strategies by measuring intervention efficacy across seasonal settings.
+- Code up a new 'hybrid' strategy: age-based programmatic roll-out of RTS,S doses 1-3 with calendar-based seasonal boosters. Compare this hybrid strategy to standard age-based and calendar-based vaccination strategies by measuring intervention efficacy across seasonal settings.
 
 - Explore the minimum gap between receiving the 3rd dose and the first booster dose under the hybrid strategy. How many children will go through their first high transmission season un-vaccinated? 
 
 - Explore the advantages of adding a 5th dose. 
 
-- Determine the coverage achieved (% vaccinated) under EPI vs. mass vaccination settings.  
-
-- Measure the relative cost-effectiveness of investing in ITNs vs. RTS,S. 
-
-- Other ideas: equity in coverage gaps, malariatools (Tom & Ellie), incorporating seasonal births
+- Other ideas: equity in coverage gaps, malariatools (Tom & Ellie), incorporating seasonal births, cost-effectiveness of ITNs vs. RTS,S.
 
 <br>
 
@@ -109,7 +105,7 @@ Parameters used in `malariasimulation`:
 
 `malariasimulation` only accepts EIR inputs using the function `set_equilibrium()`. Here I've run a range of outputs to back link PfPR<sub>2-10</sub> values to EIR. Essentially, we set our baseline parameters and then run multiple simulations at various EIRs. We then create a best-fit line through these points, and match with PfPR<sub>2-10</sub> values. Separate matching processes must take place for each seasonality setting.
 
-The blue line in the following plots displays results from `malariaEquilibrium`, which underestimate the EIRs to be used in the model once seasonality and treatment / ITNs are in place. The table below the plot shows the EIRs which need to be used in `malariasimulation` to obtain accurate results for each PfPR<sub>2-10</sub> of interest.
+**Figure 1. ** Matching PfPR<sub>2-10</sub> and EIR. The blue line in the following plots displays results from `malariaEquilibrium`, which underestimate the EIRs to be used in the model once seasonality and treatment / ITNs are in place. The table below the plot shows the EIRs which need to be used in `malariasimulation` to obtain accurate results for each PfPR<sub>2-10</sub> of interest.
 
 ``` {r prevmatch, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 # loop over malariasimulation runs
@@ -190,7 +186,7 @@ match %>% select(pfpr, eir, seasonality) %>%
 
 ## Plot seasonality and interventions
 
-**Figure 1.** Clinical incidence output from `malariasimulation` runs over highly seasonal and seasonal settings for a variety of transmission intensities. Model runs include seasonality and treatment, but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
+**Figure 2.** Clinical incidence output from `malariasimulation` runs over highly seasonal and seasonal settings for a variety of transmission intensities. Model runs include seasonality and treatment, but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
 
 ```{r seasonalitymalariasimulation, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 # read in data from HPC runs
@@ -279,24 +275,22 @@ ggplot(output2) +
 
 <br> 
 
-## Age distribution of severe cases
+# 1. Severe cases
 
-**Figure 2.** Distribution of severe cases by age and transmission setting. Age represents the upper end of a 1 year age-group. E.g. age "5" represents children ages 4-5. Results are drawn from a baseline model which includes no RTS,S or SMC intervention.
+**Figure 3.** Distribution of severe case counts by age and transmission setting. Age represents the upper end of a 1 year age-group. E.g. age "5" represents children ages 4-5. Results are drawn from a baseline model which includes no RTS,S or SMC intervention.
 
 ```{r age dist severe, message=FALSE, warning=FALSE, fig.width=7, fig.height=3, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_severe_all.rds') %>% 
   group_by(model, eir, age_low, age_high) %>%
   summarize(across(s_cases:s_inc, mean, na.rm=T)) %>%
-  left_join(match %>% select(pfpr, eir))
+  left_join(match)
 
-seas.labs <- c("Highly Seasonal", "Seasonal")
-names(seas.labs) <- c("high_seas", "low_seas")
 
 # plot
 ggplot(output) + 
-  geom_line(aes(x=age_high, y=s_cases, color=as.factor(pfpr)), size=1) + 
-  facet_wrap(.~model, labeller = labeller(model = seas.labs)) + 
+  geom_line(aes(x=age_high, y=s_cases, color=as.factor(pfpr)), size=0.9) + 
+  facet_wrap(.~seasonality, labeller = labeller(seasonality = seas.labs)) + 
   labs(x = "Age (years)",
        y = "Severe cases",
        color = expression(paste(italic(Pf),"PR"[2-10])),
@@ -307,17 +301,80 @@ ggplot(output) +
 
 ```
 
+<br>
+
+**Table 1.** Distribution of severe case counts by age and transmission setting. Results are drawn from a baseline model which includes no RTS,S or SMC intervention. Blue cells highlight the age group with the maximum number of severe cases in each seasonality and PfPR<sub>2-10</sub> setting. 
+
+```{r age dist severe 2, message=FALSE, warning=FALSE, fig.width=7, fig.height=3, fig.align="center"}
+# summary table
+table <- output %>% ungroup() %>% 
+  filter(age_high <= 10) %>%
+  group_by(model, pfpr) %>% 
+  mutate(age = paste0(age_low, '-', age_high), 
+         s_cases = round(s_cases), 
+         s_cases = cell_spec(s_cases, background=ifelse(s_cases == max(s_cases), "cornflowerblue", 'white')),
+         model = ifelse(model=='high_seas', "highly seasonal", "seasonal")) %>%
+  dplyr::select(model, pfpr, age, s_cases) %>%
+  pivot_wider(names_from='age', values_from='s_cases') 
+
+x <- table %>% 
+  kbl(col.names = c('seasonality','PfPR','0-1','1-2','2-3','3-4','4-5','5-6','6-7','7-8','8-9','9-10'), escape=F, align="c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread=T), full_width = F)
+
+add_header_above(x, c("", "", "severe case counts by age group"=10))
+
+```
+
+<br>
+
+**Figure 4.** Distribution of severe case counts by age and transmission setting. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. Results are drawn from a baseline model which includes no RTS,S or SMC intervention.
+
+```{r seasonal severe, message=FALSE, warning=FALSE, fig.width=7, fig.height=3, fig.align="center"}
+# read in data from HPC runs
+output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds')
+
+# data manipulation
+output2 <- output %>%
+  filter(intervention == 'none') %>%
+  mutate(month=ceiling(timestep/(365/12))) %>%
+  filter(month<=12) %>%
+  group_by(model, month, eir) %>%
+  # summarize cases in under 5s
+  summarize(severe=sum(n_inc_severe_0_1825, na.rm=T)) %>% ungroup() %>%
+  left_join(match) %>%
+  left_join(vaxtimes, by='seasonality')
+
+ggplot(output2) + 
+  geom_line(aes(x=month, y=severe, color=as.factor(pfpr))) + 
+  geom_vline(data=vaxtimes[vaxtimes$type=='RTS,S',], aes(xintercept=value, fill=type), color='white', lty=2, show.legend=T) + # dummy for legend
+  geom_vline(data=vaxtimes[vaxtimes$type=='RTS,S',], aes(xintercept=value, fill=type), color='blue', lty=2, show.legend=F) +
+  geom_vline(data=vaxtimes[vaxtimes$type=='SMC',], aes(xintercept=value, fill=type), color='red', lty=2, show.legend=F) +
+  geom_rect(data=vaxtimes[vaxtimes$type=='SMC',], aes(xmin = value, xmax = value + 1, ymin = 0, ymax = 180), fill="red", alpha = 0.1, show.legend = F) +
+  labs(x="Timesteps (month)",
+       y="Monthly severe cases (0-5 years)",
+       color=expression(paste(italic(Pf),"PR"[2-10])),
+       fill='intervention') + 
+  scale_y_continuous() +
+  scale_x_continuous(limits=c(1,12),breaks=seq(1,12,1)) + 
+  scale_fill_manual('Intervention', values = c('blue', 'red'), 
+       guide=guide_legend(override.aes = list(colour=c("blue", "red")), order=2),
+       labels=c("RTS,S", "SMC")) + 
+  facet_grid(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) + 
+  theme_classic()
+
+```
+
 <br> 
 
-# 1. RTS,S strategies
+# 2. RTS,S strategies
 
-**Table 1.** Description of RTS,S implementation strategies.
+**Table 2.** Description of RTS,S implementation strategies.
 
 ```{r intervention table, message=FALSE, warning=FALSE}
 # table of RTS,S strategies - manual input
 scenario <- c("Age-based vaccination", "Calendar-based vaccination", "Hybrid vaccination")
 
-dose13 <- c("6, 7.5, and 9 months of age", "3 months before the high transmission season, among those 5-17 months of age", "6, 7.5, and 9 months of age")
+dose13 <- c("6, 7.5, and 9 months of age", "1, 2, and 3 months before the high transmission season, among those 5-17 months of age", "6, 7.5, and 9 months of age")
 
 dose4 <- c("27 months of age", "12 months following dose 3", "One month before the high transmission season")
   
@@ -336,7 +393,7 @@ add_header_above(x, c(" ", "Vaccination schedule" = 3, " "))
 
 # 2. Cases
 
-**Figure 3a.** The number of cases per year under each intervention strategy, stratified by season and PfPR<sub>2-10</sub> transmission setting. 
+**Figure 5a.** The number of clinical cases per year among children 0-5 years under each intervention strategy, stratified by season and PfPR<sub>2-10</sub> transmission setting. 
 
 ```{r compare, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
 # read in data from HPC runs
@@ -346,34 +403,30 @@ output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/r
 output2 <- output %>%
   filter(intervention != 'hybrid' | minwait == 30) %>%
   mutate(year=ceiling(timestep/365)) %>%
-  rename(seasonality=model) %>%
-  group_by(intervention, seasonality, year, eir, fifth) %>%
+  group_by(intervention, model, year, eir, fifth) %>%
   # summarize cases in under 5s
   summarize(cases = sum(p_inc_clinical_0_1825, na.rm=T),
             severe = sum(p_inc_severe_0_1825, na.rm=T),
             deaths = sum(0.215 * p_inc_severe_0_1825, na.rm=T)) %>% ungroup() %>%
-  left_join(match %>% select(pfpr, eir)) %>%
+  left_join(match) %>%
   # attach PfPRs
   mutate(pfpr = factor(pfpr, levels = c(0.1, 0.25, 0.35, 0.55), labels = c('PfPR 10', 'PfPR 25', 'PfPR 35', 'PfPR 55' ))) %>%
   # label interventions
-  mutate(intervention = case_when(intervention == 'EPI' ~ 'EPI',
+  mutate(intervention = case_when(intervention == 'EPI' ~ 'age-based',
              intervention == 'none' ~ 'none',
-             intervention == 'SV 4-dose' ~ 'seasonal 4-dose',
-             intervention == 'SV 5-dose' ~ 'seasonal 5-dose',
+             intervention == 'SV 4-dose' ~ 'calendar-based 4-dose',
+             intervention == 'SV 5-dose' ~ 'calendar-based 5-dose',
              intervention == 'hybrid' & fifth == 0 ~ 'hybrid 4-dose',
              intervention == 'hybrid' & fifth == 1 ~ 'hybrid 5-dose'),
-         intervention = factor(intervention, levels = c('none', 'EPI', 'seasonal 4-dose', 'seasonal 5-dose', 'hybrid 4-dose', 'hybrid 5-dose')))
+         intervention = factor(intervention, levels = c('none', 'age-based', 'calendar-based 4-dose', 'calendar-based 5-dose', 'hybrid 4-dose', 'hybrid 5-dose')))
 
 # plot
-seas.labs <- c("Highly Seasonal", "Seasonal")
-names(seas.labs) <- c("high_seas", "low_seas")
-
 ggplot(data=output2, aes(x=year, y=cases, group=interaction(pfpr, intervention), color=intervention)) + 
   geom_line() + 
   scale_y_continuous(labels = comma) + 
   scale_x_continuous(breaks = seq(1,15,1), limits = c(0,20)) + 
   facet_grid(. ~ seasonality, labeller = labeller(seasonality = seas.labs)) + 
-  labs(x='Year', y='Cases (0-5 years)', color='Intervention') +
+  labs(x='Year', y='Clinical cases (0-5 years)', color='Intervention') +
   theme_classic() + 
   theme(axis.text.x = element_text(angle = 90, hjust=1, vjust=0.5)) + 
   annotate("text", x = 18, y = 4000, label = 'PfPR 10') + 
@@ -385,7 +438,7 @@ ggplot(data=output2, aes(x=year, y=cases, group=interaction(pfpr, intervention),
 
 <br>
 
-**Figure 3b.** The number of cases per year under each intervention strategy, stratified by season and PfPR<sub>2-10</sub> transmission setting. 
+**Figure 5b.** The number of clinical cases per year among children 0-5 years under each intervention strategy, stratified by season and PfPR<sub>2-10</sub> transmission setting. 
 
 ```{r compare2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
 
@@ -394,13 +447,15 @@ ggplot(data=output2, aes(x=year, y=cases, group=interaction(pfpr, intervention),
   scale_y_continuous(labels = comma) + 
   scale_x_continuous(breaks = seq(1,15,1), limits = c(0,20)) + 
   facet_grid(pfpr ~ seasonality, labeller = labeller(seasonality = seas.labs), scales='free') + 
-  labs(x='Year', y='Cases (0-5 years)', color='Intervention') +
+  labs(x='Year', y='Clinical cases (0-5 years)', color='Intervention') +
   theme_classic() + 
   theme(axis.text.x = element_text(angle = 90, hjust=1, vjust=0.5)) 
 
 ```
 
-**Figure 4.** Averted - The following plot compares clinical cases, severe cases, and deaths over the whole 15 simulation period, stratified by intervention.
+<br>
+
+**Figure 6.** The number of clinical cases, severe cases, and deaths averted among children 0-5 years over the whole 15 simulation period, stratified by intervention. The reference group is a block of scenarios run with no RTS,S intervention. 
 
 ```{r compare3, message=FALSE, warning=FALSE, fig.width=8, fig.height=10, fig.align="center"}
 # data manipulation
@@ -410,26 +465,34 @@ output3 <- output2 %>%
             severe = sum(severe, na.rm=T),
             deaths = sum(deaths, na.rm=T)) %>% ungroup()
 
-# plot cases, severe cases, and deaths
-compareplot <- function(data, var, title){ggplot(data=output3, aes(x=factor(pfpr), y=var, group=intervention, fill=intervention)) + 
+none <- output3 %>% filter(intervention=='none') %>% 
+  rename(cases0 = cases, severe0 = severe, deaths0 = deaths) %>%
+  select(-intervention)
+
+output4 <- output3 %>% filter(intervention!='none') %>% 
+  left_join(none, by=c('seasonality','pfpr')) %>% 
+  mutate(casesA=cases0-cases, severeA=severe0-severe, deathsA=deaths0-deaths)
+
+# plot cases, severe cases, and deaths averted
+compareplot <- function(data, var, title){ggplot(data=data, aes(x=factor(pfpr), y=var, group=intervention, fill=intervention)) + 
   geom_col(position = 'dodge') + 
   facet_grid(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) + 
   labs(x=expression(paste(italic(Pf),"PR"[2-10])), y=title, title=title, fill='Intervention') +
   theme_classic() 
 }
 
-compareplot(output3, output3$cases, 'Clinical cases (children 0-5 years)') / 
-  compareplot(output3, output3$severe, 'Severe cases (children 0-5 years)') / 
-  compareplot(output3, output3$deaths, 'Deaths (children 0-5 years)') + plot_layout(guides = "collect") 
+compareplot(output4, output4$casesA, 'Clinical cases (children 0-5 years)') / 
+  compareplot(output4, output4$severeA, 'Severe cases (children 0-5 years)') / 
+  compareplot(output4, output4$deathsA, 'Deaths (children 0-5 years)') + plot_layout(guides = "collect") 
 
 ```
 
 
 <br>
 
-# 2. Minimum wait time between 3rd and 4th dose
+# 3. Minimum wait time between 3rd and 4th dose
 
-**Figure 5.** Exploring the minimum wait time between receiving the 3rd dose and the first booster dose under the hybrid strategy. Until now we have set this minimum gap at 1 month. The outcome is the number of cases among children 0-5 years, stratified by PfPR<sub>2-10</sub> and seasonality. The transparency of each line represents the minimum wait time, ranging from 0 to 11 months.
+**Figure 7.** Exploring the minimum wait time between receiving the 3rd dose and the first booster dose under the hybrid strategy. Until now we have set this minimum gap at 1 month. The outcome is the number of clinical cases among children 0-5 years, stratified by PfPR<sub>2-10</sub> and seasonality. The transparency of each line represents the minimum wait time, ranging from 0 to 11 months.
 
 ```{r wait time, message=FALSE, warning=FALSE, fig.width=8, fig.height=5, fig.align="center"}
 # read in data from HPC runs
@@ -439,13 +502,12 @@ output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/r
 output2 <- output %>% filter(grepl('wait', file)) %>% 
   filter(fifth==0) %>%                                    # limiting it to 4 doses for now
   mutate(year=ceiling(timestep/365), minwait=round(minwait/month)) %>%
-  rename(seasonality=model) %>%
-  group_by(minwait, eir, seasonality, year) %>%
+  group_by(minwait, eir, model, year) %>%
   summarize(cases = sum(p_inc_clinical_0_1825, na.rm=T)) %>% ungroup() %>%
-  left_join(match %>% select(pfpr, eir))
+  left_join(match)
 
 seas.labs <- c("Highly Seasonal", "Seasonal")
-names(seas.labs) <- c("high_seas", "low_seas")
+names(seas.labs) <- c("highly_seasonal", "seasonal")
 
 ggplot(data=output2, aes(x=year, y=cases, group=interaction(eir,minwait), color=factor(pfpr), alpha=factor(minwait))) + 
   geom_line() + 
@@ -455,61 +517,76 @@ ggplot(data=output2, aes(x=year, y=cases, group=interaction(eir,minwait), color=
   scale_y_continuous(labels = comma) + 
   scale_x_continuous(breaks = seq(1,15,1)) + 
   facet_wrap(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) +
-  labs(x='Year', y='Cases among children 0-5 years', 
+  labs(x='Year', y='Clinical cases among children 0-5 years', 
        color=expression(italic(PfPR[2-10]~(symbol("\045")))), alpha='Minimum wait time') +
   theme_classic()
 ```
 
-There doesn't appear to be very much difference between low and high wait times, and indeed, when we look at summarized counts, there is little difference in the number of cases with different wait times:
+<br> 
 
-**Table 2.** Number of clinical cases as the minimum wait time varying between receiving the 3rd dose and the first booster dose under the hybrid strategy. The outcome is the number of cases among children 0-5 years under a PfPR<sub>2-10</sub> = 0.55 transmission setting, stratified by and seasonality. 
+**Table 3.** Difference in the number of clinical cases as the minimum wait time varies between receiving the 3rd dose and the first booster dose under the hybrid strategy. The outcome is the number of clinical cases among children 0-5 years over the 15-year simulation period, stratified by PfPR<sub>2-10</sub> and seasonality. The reference group is a minimum wait time of 0 months. Blue cells highlight the minimum wait time resulting in the most cases averted.  
 
 ```{r wait time2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
 # table from plot ^ 
-output2 %>% 
-  filter(pfpr==0.55) %>%
-  group_by(minwait, eir, seasonality, pfpr) %>%
-  summarize(cases = sum(cases, na.rm=T)) %>%
-  arrange(seasonality, eir, minwait) %>%
-  group_by(eir, seasonality, pfpr) %>%
-  mutate(diff = round((cases - first(cases)) / cases*100,1)) %>%
-  
-  kbl(col.names = c('Min wait (month)', 'EIR', 'seasonality', 'PfPR', '# cases', '% difference to wait=0'), digits=2, escape = F, align = "c") %>%
-  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T)) %>%
-  row_spec(row=c(1,13), bold = T, background = "lightsteelblue")
+x <- output2 %>% 
+  group_by(minwait, seasonality, pfpr) %>%
+  summarize(cases = round(sum(cases, na.rm=T))) %>%
+  arrange(seasonality, pfpr, minwait) %>%
+  group_by(seasonality, pfpr) %>%
+  mutate(diff = round((cases - first(cases))),
+         cases = ifelse(diff==0, cases, NA),
+         cases = mean(cases, na.rm=T),
+         diff = cell_spec(diff, background=ifelse(diff == min(diff), "cornflowerblue", 'white')),
+         diff = ifelse(diff==0,'-',diff),
+         seasonality = ifelse(seasonality=='highly_seasonal', "highly seasonal", "seasonal")) %>%
+  pivot_wider(names_from = 'minwait', values_from = 'diff') %>%
+  kbl(col.names = c('seasonality', 'PfPR', 'baseline clinical cases', '0','1','2','3','4','5','6','7','8','9','10','11'), escape = F, align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T)) 
+
+add_header_above(x, c(rep('',3), 'minimum wait time (months)'=12)) 
 
 ```
 
 <br>
 
-# 3. Fifth dose
+# 4. Fifth dose
 
-Now we will explore the advantages of adding a fifth dose relative to four doses. To start, plot the number of doses given out under each strategy over the first 36 months to make sure the model is parameterized correctly. Here, I am limiting data to scenarios under PfPR<sub>2-10</sub> 0.55, and a hybrid strategy with a minimum wait time of 1 month between 3rd and 4th doses. 
+**Figure 8.** The number of doses given out under each strategy over the first 36 months. Data are limited to PfPR<sub>2-10</sub> 0.55 settings, and the hybrid strategy shown is run with a minimum wait time of 1 month between the 3rd dose of the primary series and the 1st booster dose. Seasonality curves are plotted in the background and represent curves with no RTS,S intervention.
 
 ```{r fifth dose, message=FALSE, warning=FALSE, fig.width=10, fig.height=6, fig.align="center"}
 # read in data from HPC runs
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_hybrid_all.rds')
 
 # data manipulation
-output3 <- output %>% 
+output2 <- output %>% 
   mutate(month=ceiling(timestep/(365/12)), minwait=round(minwait/(365/12))) %>%
-  rename(seasonality=model) %>%
-  group_by(intervention, seasonality, eir, minwait, month, fifth) %>%
+  filter(is.na(minwait) | minwait == 1) %>%
+  group_by(intervention, model, eir, minwait, month, fifth) %>%
   summarize(dose1 = sum(dose1, na.rm=T),
             dose2 = sum(dose2, na.rm=T),
             dose3 = sum(dose3, na.rm=T),
             dose4 = sum(dose4, na.rm=T),
             dose5 = sum(dose5, na.rm=T)) %>%
-  arrange(seasonality, eir, minwait, month) %>%
+  arrange(model, eir, minwait, month) %>%
   pivot_longer(cols=c(dose1:dose5), names_to = 'dose', values_to = 'nvax') %>%
-  group_by(intervention, seasonality, eir, minwait, dose, fifth) %>%
+  group_by(intervention, model, eir, minwait, dose, fifth) %>%
   mutate(nvaxcum = cumsum(nvax)) %>%
   ungroup() %>%
-  left_join(match %>% select(pfpr, eir)) %>%
-  filter(intervention != 'SV 4-dose') %>%
-  mutate(intervention = factor(intervention, 
-                               levels=c('none', 'EPI', 'SV 5-dose', 'hybrid'), 
-                               labels=c('none','EPI','seasonal vaccines','EPI + seasonal booster')))
+  left_join(match) %>%
+  mutate(intervention = case_when(intervention == 'EPI' ~ 'age-based',
+         intervention == 'none' ~ 'none',
+         intervention == 'SV 4-dose' ~ 'calendar-based 4-dose',
+         intervention == 'SV 5-dose' ~ 'calendar-based 5-dose',
+         intervention == 'hybrid' & fifth == 0 ~ 'hybrid 4-dose',
+         intervention == 'hybrid' & fifth == 1 ~ 'hybrid 5-dose'),
+         intervention = factor(intervention, levels = c('none', 'age-based', 'calendar-based 4-dose', 'calendar-based 5-dose', 'hybrid 4-dose', 'hybrid 5-dose'))) 
+
+# total vaccinations
+total <- output2 %>% ungroup() %>% 
+  group_by(intervention, seasonality, eir, pfpr, month, minwait, fifth) %>%
+  summarize(nvax = sum(nvax, na.rm=T)) %>%
+  group_by(intervention, seasonality, eir) %>%
+  mutate(nvaxcum = cumsum(nvax))
 
 # seasonality curve
 scurve <- output %>% filter(intervention=='none') %>% ungroup() %>%
@@ -517,67 +594,68 @@ scurve <- output %>% filter(intervention=='none') %>% ungroup() %>%
   filter(month<=36) %>%
   group_by(month, eir) %>%
   summarize(inc_month=sum(n_inc_clinical_0_36500 / n_0_36500, na.rm=T)) %>%
-  left_join(match, by='eir') %>% filter(pfpr==0.55) %>%
-  mutate(seasonality=ifelse(seasonality=='seasonal','low_seas','high_seas'))
+  left_join(match, by='eir') %>% filter(pfpr==0.55) 
+
+# to see default ggplot colors:
+# library(scales)
+# show_col(hue_pal()(5))
+
+cols <- c('#F8766D','#A3A500','#00BF7D','#00B0F6','#E76BF3',"#000000")
 
 # plot
-plotvax <- function(seasonvar){
-  ggplot(data=output3 %>% 
-         filter(intervention!='EPI + seasonal booster' | (minwait==1 & fifth==1)) %>% 
-         filter(seasonality==seasonvar) %>% 
-         filter(month<=36) %>% filter(pfpr==0.55)) + 
-  geom_line(data=scurve %>% filter(seasonality==seasonvar), aes(x=month, y=inc_month*50000), color='grey') + 
-  geom_area(data=scurve %>% filter(seasonality==seasonvar), aes(x=month, y=inc_month*50000), fill='grey', alpha=0.2, outline.type='upper') + 
-  geom_line(aes(x=month, y=nvaxcum, group=interaction(dose, eir), color=dose), size=1) + 
-  scale_y_continuous(labels = comma, sec.axis = sec_axis(~ ./50000, name = "Monthly clinical incidence")) + # 
+ggplot(data=output2 %>% filter(month<=36 & pfpr==0.55) %>% 
+  filter(intervention %in% c('none','age-based','calendar-based 5-dose') | (minwait==1 & fifth==1))) + 
+  geom_line(data=scurve, aes(x=month, y=inc_month*200000), color='grey') + 
+  geom_area(data=scurve, aes(x=month, y=inc_month*200000), fill='grey', alpha=0.2, outline.type='upper') + 
+   geom_line(data=total %>% filter(month<=36 & pfpr==0.55) %>% 
+  filter(intervention %in% c('none','age-based','calendar-based 5-dose') | (minwait==1 & fifth==1)), aes(x=month, y=nvaxcum, color='total'), size=1) + 
+   geom_line(aes(x=month, y=nvaxcum, group=interaction(dose, eir), color=dose), size=1) + 
+  scale_y_continuous(labels = comma, sec.axis = sec_axis(~ ./200000, name = "Monthly clinical incidence")) + # 
   scale_x_continuous(breaks=seq(0,36,6)) + 
-  facet_wrap(. ~ intervention, labeller = labeller(seasonality = seas.labs), nrow=1, strip.position = 'top') +
-  labs(x='Month', y='Number of vaccinations', color=expression(italic(PfPR[2-10]~(symbol("\045"))))) +
+  facet_grid(seasonality ~ intervention, labeller = labeller(seasonality = seas.labs)) +
+  labs(x='Month', y='Number of vaccinations', color='# doses') +
    theme_classic() + 
-   theme(plot.margin=unit(c(1,5,1,1), "pt"), axis.title.y.right = element_text(vjust=3)) 
-}
-
-plotvax('high_seas') / plotvax('low_seas') + plot_layout(guides = "collect") 
+   theme(plot.margin=unit(c(1,5,1,1), "pt"), axis.title.y.right = element_text(vjust=3)) +
+   scale_color_manual(values = cols)
 
 ```
 
-Now compare the seasonal and hybrid strategies with a 4-dose vs. 5-dose regimen. Below we are plotting the number of cases averted (as compared to no intervention) under each strategy per year. It appears that the seasonal 5-dose strategy performs best, averting the most cases per year in all settings.
+<br>
+
+**Figure 9.** Comparison of the calendar-based and hybrid strategies under a 4-dose vs. 5-dose regimen. The outcome plotted is the number of clinical cases averted (as compared to no intervention) among children 0-5 years under each strategy per year. 
 
 ```{r fifth dose2, message=FALSE, warning=FALSE, fig.width=8, fig.height=6, fig.align="center"}
 # calculate baseline cases
 none <- output %>% filter(grepl('none', file)) %>% 
   mutate(year=ceiling(timestep/365)) %>%
-  rename(seasonality=model) %>%
-  group_by(eir, seasonality, year) %>%
+  group_by(eir, model, year) %>%
   summarize(cases_base = sum(p_inc_clinical_0_1825, na.rm=T)) %>% ungroup() 
   
 # data manipulation
-output2 <- output %>% 
+output3 <- output %>% 
   # limit data set to SV and hybrid scenarios and rename
   filter(grepl('SV', intervention) | (grepl('hybrid', intervention) & minwait == 30)) %>%
-  mutate(intervention = case_when(intervention == 'SV 4-dose' ~ 'seasonal 4-dose',
-            intervention == 'SV 5-dose' ~ 'seasonal 5-dose',
+  mutate(intervention = case_when(intervention == 'SV 4-dose' ~ 'calendar-based 4-dose',
+            intervention == 'SV 5-dose' ~ 'calendar-based 5-dose',
             intervention == 'hybrid' & fifth == 0 ~ 'hybrid 4-dose',
-            intervention == 'hybrid' & fifth == 1 ~ 'hybrid 5-dose'),
-         intervention = factor(intervention, levels = c('seasonal 4-dose', 'seasonal 5-dose', 'hybrid 4-dose', 'hybrid 5-dose'))) %>%
+            intervention == 'hybrid' & fifth == 1 ~ 'hybrid 5-dose')) %>%
   # summarize cases by year
   mutate(year=ceiling(timestep/365)) %>%
-  rename(seasonality=model) %>%
-  group_by(intervention, eir, seasonality, year) %>%
+  group_by(intervention, eir, model, year) %>%
   summarize(cases = sum(p_inc_clinical_0_1825, na.rm=T)) %>% ungroup() %>%
   # add in pfpr and outcomes under no RTS,S
-  left_join(match %>% select(pfpr, eir)) %>%
+  left_join(match) %>%
   left_join(none) %>%
   # calculate cases / deaths averted
   mutate(case_avert = cases_base - cases)
 
 # plot
-ggplot(data=output2, aes(x=year, y=case_avert, group=interaction(pfpr, intervention), color=intervention)) + 
+ggplot(data=output3, aes(x=year, y=case_avert, group=interaction(pfpr, intervention), color=intervention)) + 
   geom_line() + 
   scale_y_continuous(labels = comma) + 
   scale_x_continuous(breaks = seq(1,15,1), limits = c(0,20)) + 
   facet_grid(. ~ seasonality, labeller = labeller(seasonality = seas.labs)) + 
-  labs(x='Year', y='Cases averted among children 0-5 years', color='Intervention') +
+  labs(x='Year', y='Clinical cases averted among children 0-5 years', color='Intervention') +
   theme_classic() + 
   theme(axis.text.x = element_text(angle = 90, hjust=1, vjust=0.5)) + 
   annotate("text", x = 18, y = 1000, label = 'PfPR 10') +
@@ -585,35 +663,53 @@ ggplot(data=output2, aes(x=year, y=case_avert, group=interaction(pfpr, intervent
   annotate("text", x = 18, y = 5000, label = 'PfPR 35') +
   annotate("text", x = 18, y = 7000, label = 'PfPR 55')
 ```
-When we look at cases averted across all 15 years of the simulation, the seasonal 5-dose strategy averts the most cases except in the seasonal PfPR<sub>2-10</sub> 0.1 setting. The seasonal 4-dose and the hybrid 5-dose strategies are close, and are slightly better strategies in different settings.
+
+<br>
+
+**Table 4.** Comparison of the calendar-based and hybrid strategies under a 4-dose vs. 5-dose regimen. The outcome is the number of clinical cases averted (as compared to no intervention) and the number of clinical cases averted per dose among children 0-5 years under each strategy over all 15 years of the simulation. Blue cells highlight the maximum cases averted or the maximum cases averted per dose in each seasonality and PfPR<sub>2-10</sub> setting. 
 
 ```{r fifth dose3, message=FALSE, warning=FALSE, fig.width=8, fig.height=4, fig.align="center"}
-# data manipulation
-output3 <- output2 %>% 
-  group_by(intervention,seasonality, pfpr) %>%  
-  summarize(case_avert = sum(case_avert, na.rm=T)) %>% ungroup() 
+# total vaccinations
+total2 <- total %>% ungroup() %>% 
+  group_by(intervention, seasonality, pfpr) %>%
+  summarize(nvax = sum(nvax, na.rm=T)) 
 
-# plot
-ggplot(data=output3, aes(x=factor(pfpr), y=case_avert, group=intervention, fill=intervention)) + 
-  geom_col(position = 'dodge') + 
-    scale_y_continuous(labels = comma) + 
-  facet_grid(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) + 
-  labs(x=expression(paste(italic(Pf),"PR"[2-10])), y='Cases averted (0-5 years)', fill='Intervention') +
-  theme_classic() 
+# data manipulation
+output4 <- output3 %>% 
+  group_by(intervention, seasonality, pfpr) %>%  
+  summarize(case_avert = sum(case_avert, na.rm=T)) %>% 
+  left_join(total2) %>%
+  group_by(seasonality, pfpr) %>%
+  mutate(dose = case_when(grepl('4',intervention)~4,
+                          grepl('5',intervention)~5),
+         intervention = case_when(grepl('hybrid',intervention)~'hybrid',
+                                  grepl('calendar',intervention)~'calendar-based'),
+         case_avert = round(case_avert),
+         case_avert_vax = round(case_avert / nvax, 2),
+         case_avert = cell_spec(case_avert, background=ifelse(case_avert == max(case_avert), "cornflowerblue", 'white')),
+         case_avert_vax = cell_spec(case_avert_vax, background=ifelse(case_avert_vax == max(case_avert_vax), "cornflowerblue", 'white')),
+         seasonality=ifelse(seasonality=='highly_seasonal', 'highly seasonal', 'seasonal')) %>%
+  select(-nvax) %>%
+  pivot_wider(names_from=c(intervention, dose), values_from=c(case_avert, case_avert_vax)) 
+
+# print table
+x <- output4 %>%
+  kbl(col.names = c('seasonality', 'PfPR', 'calendar-based dose 4', 'calendar-based dose 5', 'hybrid dose 4', 'hybrid dose 5', 'calendar-based dose 4', 'calendar-based dose 5', 'hybrid dose 4', 'hybrid dose 5'), escape = F, align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", fixed_thread = T)) 
+
+add_header_above(x, c(rep('',2), 'cases averted'=4, 'cases averted per dose'=4)) 
 
 ```
 
 <br>
 
-# 4. Coverage (% vaccinated)
+# 5. Coverage (% vaccinated)
 
-We don't yet have the correct outputs needed to calculate the % vaccinated in our target age group. To begin to examine this, sum up the number of doses of RTS,S given out each year and divide by the number of kids ages 0-5 years.
+Change figure - we set the coverage right now so this is out of children 0-5 years, but not very helpful. 
 
 Check with Giovanni: 
 
 - Can we set up a way to output the number of kids tagged as vaccinated within an age group for each time step? 
- 
-- Check that dose 4 and dose 5 have the same coverage rate
 
 - See if we can calculate vaccine indirect effects
 
@@ -626,8 +722,7 @@ output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/r
 output2 <- output %>%
   filter(intervention != 'hybrid' & intervention != 'none' | minwait == 30) %>%
   mutate(year=ceiling(timestep/365)) %>%
-  rename(seasonality=model) %>%
-  left_join(match %>% select(pfpr, eir)) %>%
+  left_join(match) %>%
   mutate(intervention = case_when(intervention == 'EPI' ~ 'EPI',
              intervention == 'SV 4-dose' ~ 'seasonal 4-dose',
              intervention == 'SV 5-dose' ~ 'seasonal 5-dose',
@@ -658,7 +753,7 @@ ggplot(output2 %>%
 
 <br>
 
-# 5. Cost-effectiveness: ITNs vs. RTS,S
+# 6. Cost-effectiveness: ITNs vs. RTS,S
 
 A continuation of [Pete's paper](https://gh.bmj.com/content/2/1/e000090)? 
 
@@ -678,6 +773,12 @@ output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/r
 
 * incorporating seasonal births
 
-* calculate vaccine efficacy (Risk among unvaccinated group − risk among vaccinated group)  / Risk among unvaccinated group
+* catch-up vaccination and flexible start dates
+
+* correlation between seasonality and EPI coverage gaps: [MVIP results](https://cdn.who.int/media/docs/default-source/immunization/mvip/full-evidence-report-on-the-rtss-as01-malaria-vaccine-for-sage-mpag-(sept2021).pdf?sfvrsn=c9737be_5) (pg 49) and [WHO immunisation dashboard](https://immunizationdata.who.int/)
+
+* calculate vaccine efficacy (Risk among unvaccinated group − risk among vaccinated group)  / Risk among unvaccinated group. make outputs for vaccinated vs. unvaccinated cohorts
+
+* look at life-years averted under each strategy. And life-years averted per dose
 
 
