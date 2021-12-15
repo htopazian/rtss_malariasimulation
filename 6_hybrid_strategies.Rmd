@@ -15,12 +15,14 @@ output:
 ```{r setup, message=FALSE, warning=FALSE}
 # packages
 library(tidyverse)
+library(sf)
 library(kableExtra)
 library(malariasimulation)
 library(patchwork)
 library(scales)
 library(LaCroixColoR)
 library(data.table)
+library(lubridate)
 
 # devtools::install_github('mrc-ide/malariasimulation@dev', force=TRUE)
 # devtools::install_github('johannesbjork/LaCroixColoR')
@@ -186,7 +188,7 @@ match %>% select(pfpr, eir, seasonality) %>%
 
 ## Plot seasonality and interventions
 
-**Figure 2.** Clinical incidence output from `malariasimulation` runs over highly seasonal and seasonal settings for a variety of transmission intensities. Model runs include seasonality and treatment, but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
+**Figure 2a.** Clinical incidence output from `malariasimulation` runs over highly seasonal and seasonal settings for a variety of transmission intensities. Model runs include seasonality, treatment, and ITNS but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
 
 ```{r seasonalitymalariasimulation, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 # read in data from HPC runs
@@ -270,6 +272,165 @@ ggplot(output2) +
        labels=c("RTS,S", "SMC")) + 
   facet_grid(seasonality  ~ ., labeller = labeller(seasonality = seas.labs)) + 
   theme_classic()
+
+```
+
+**Figure 2b.** Clinical incidence output from `malariasimulation` runs over seasonal settings for a variety of transmission intensities. Seasonality profiles match those at study study sites in [Burkina Faso and Mali](https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1003214). Model runs include seasonality, treatment, and ITNs but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
+
+```{r mali BF, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
+smcdat <- read_csv('./LSHTM_sites_SMC.csv') %>% 
+  filter(seasonality_no_smc == 1 & country != 'BOTH') %>%
+  group_by(country) %>%
+  mutate(model=case_when(country=='BF'~"burkina faso", 
+                         country=='ML'~'mali'),
+         inc_month=rate_1000_personmonths / 1000,
+         date=mdy(myr),
+         year=year(date),
+         month=month(date)) 
+
+smc15 <- smcdat %>% filter(year==2015)
+smc16 <- smcdat %>% filter(year==2016)
+
+# ggplot() + 
+#   geom_line(data = smc15, aes(x=month, y=inc_month, color=model)) + 
+#   geom_line(data = smc16, aes(x=month, y=inc_month, color=model))
+
+# set parameters
+human_population <- 10000
+year <- 365
+month <- year/12
+warmup <- 4*year
+sim_length <- 1*year
+
+# values from 2015-2016 
+# admin 1
+# Hauts-Bassins (BF): 3.050911 -3.635848 -0.08368039 1.0269266 -2.564021 1.956763 -0.1073778
+# Sikasso (M): 2.961674 -3.587095 0.18946440 0.6632403 -2.423344 1.764444 -0.2240691
+# admin 2
+# Hauts-Bassins (BF): 2.910332 -3.497756 -0.07166861 1.0143044 -2.476774 1.953536 -0.1429758
+# Sikasso (M): 2.960722 -3.615782 0.30245314 0.4661306 -2.283491 1.546425 -0.1387256
+
+# highly seasonal parameters
+burkina_faso <- get_parameters(list(
+  human_population = human_population,
+  model_seasonality = TRUE, 
+  g0 = 2.910332, 
+  g = c(-3.497756, -0.07166861, 1.0143044),
+  h = c(-2.476774, 1.953536, -0.1429758),
+  incidence_rendering_min_ages = 0,
+  incidence_rendering_max_ages = 100 * year,
+  clinical_incidence_rendering_min_ages = c(0,0),
+  clinical_incidence_rendering_max_ages = c(5 * year, 100*year),
+  individual_mosquitoes = TRUE))
+
+# seasonal parameters
+mali <- get_parameters(list(
+  human_population = human_population,
+  model_seasonality = TRUE, 
+  g0 = 2.960722, 
+  g = c(-3.615782, 0.30245314, 0.4661306),
+  h = c(-2.283491, 1.546425, -0.1387256),
+  clinical_incidence_rendering_min_ages = c(0,0),
+  clinical_incidence_rendering_max_ages = c(5 * year, 100*year),
+  individual_mosquitoes = TRUE))
+
+year <- 365
+month <- year/12
+
+runsim <- function(params, starting_EIR, warmup, sim_length, season){
+  year <- 365
+  month <- year/12
+  
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
+                        proportions = c(0.25, 0.25, 0.5))
+  params$phi_bednets <- c(0.9, 0.9, 0.89) 
+  params$phi_indoors <- c(0.96, 0.98, 0.97)
+  
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  params <- set_equilibrium(params, starting_EIR)
+  
+  run_simulation(warmup + sim_length, params) %>% 
+    mutate(eir=starting_EIR, 
+           timestep=timestep-warmup,
+           model=season) %>%
+    filter(timestep > 0)
+}
+
+output1 <- runsim(mali, 5, warmup, sim_length, 'mali')
+output2 <- runsim(mali, 10, warmup, sim_length, 'mali')
+output3 <- runsim(mali, 15, warmup, sim_length, 'mali')
+output4 <- runsim(mali, 20, warmup, sim_length, 'mali')
+output5 <- runsim(burkina_faso, 5, warmup, sim_length, 'burkina faso')
+output6 <- runsim(burkina_faso, 10, warmup, sim_length, 'burkina faso')
+output7 <- runsim(burkina_faso, 15, warmup, sim_length, 'burkina faso')
+output8 <- runsim(burkina_faso, 20, warmup, sim_length, 'burkina faso')
+  
+dat <- rbindlist(list(output1, output2, output3, output4, output5, output6, output7, output8), fill = TRUE, idcol="file", use.names = T)
+
+# vaccination times
+first_bf <- c((peak_season_offset(burkina_faso)/month) + c(-3,-2,-1,-1.5,-0.5,0.5,1.5)) %>% 
+  as_tibble() %>%
+  mutate(color = c(rep('blue',3), rep('red',4)),
+         type = c(rep('RTS,S',3), rep('SMC',4)),
+         seasonality = 'burkina faso')
+
+first_m <- c((peak_season_offset(mali)/month) + c(-3,-2,-1,-1.5,-0.5,0.5,1.5)) %>%
+  as_tibble() %>%
+  mutate(color = c(rep('blue',3), rep('red',4)),
+         type = c(rep('RTS,S',3), rep('SMC',4)),
+         seasonality = 'mali')
+
+vaxtimes <- rbind(first_bf, first_m)
+
+# post-processing - just select one year from HPC output to plot seasonality
+dat2 <- dat %>% 
+  mutate(month=ceiling(timestep/(365/12))) %>%
+  filter(month<=12) %>%
+  group_by(month, eir, model) %>%
+  summarize(inc_month=sum(n_inc_clinical_0_1825 / n_0_1825, na.rm=T)) %>%
+  left_join(vaxtimes, by=c('model'='seasonality'))
+
+# plot
+ggplot(dat2) + 
+  geom_line(aes(x=month, y=inc_month, color=as.factor(eir))) + 
+  geom_vline(data=. %>% filter(type=='RTS,S'), aes(xintercept=value, fill=type), color='white', lty=2, show.legend=T) + # dummy for legend
+  geom_vline(data=. %>% filter(type=='RTS,S'), aes(xintercept=value, fill=type), color='blue', lty=2, show.legend=F) +
+  geom_vline(data=. %>% filter(type=='SMC'), aes(xintercept=value, fill=type), color='red', lty=2, show.legend=F) +
+  geom_rect(data=. %>% filter(type=='SMC'), aes(xmin = value, xmax = value + 1, ymin = 0, ymax = 0.5), fill="red", alpha = 0.005, show.legend = F) +
+  geom_line(data=smc15, aes(x=month, y=inc_month), color='black') + 
+  geom_line(data=smc16, aes(x=month, y=inc_month), color='black') + 
+  labs(x="Timesteps (month)",
+       y="Monthly clinical incidence (0-5 years)",
+       color='EIR',
+       fill='intervention') + 
+  scale_y_continuous(limits=c(0,0.5),breaks=c(0,0.1,0.2,0.3,0.4)) +
+  scale_x_continuous(limits=c(1,12),breaks=seq(1,12,1)) + 
+  scale_fill_manual('Intervention', values = c('blue', 'red'), 
+       guide=guide_legend(override.aes = list(colour=c("blue", "red")), order=2),
+       labels=c("RTS,S", "SMC")) + 
+  facet_grid(model ~ .) + 
+  theme_classic()
+
+# study sites
+admin0 <- readRDS("M:/Eradication/rds/admin0.RDS") %>% filter(Country %in% c('Mali', 'Burkina Faso', 'Senegal', 'Guinea', 'Mauritania', 'Algeria', 'Niger', "CÃ´te d'Ivoire", 'Ghana', 'Togo', 'Benin', 'Nigeria', 'Sierra Leone', 'Morocco'))
+admin1 <- readRDS("M:/Eradication/rds/admin1.RDS") %>% filter(admin1 %in% c('Hauts-Bassins', 'Sikasso'))
+countries <- filter(admin0, Country %in% c('Mali', 'Burkina Faso')) 
+admin2 <- readRDS("M:/Eradication/rds/admin2.RDS") %>% 
+  filter(admin2 %in% c('Tuy', 'Bougouni'))
+
+# plot
+ggplot() + 
+  geom_sf(data = admin0, fill="cornsilk2",color="cornsilk3") +
+  geom_sf(data = countries, fill="cornsilk", color="tan4", size=0.5) +
+  geom_sf(data = admin1, aes(fill = Country)) + 
+  geom_sf(data = admin2, color='black', fill=NA) + 
+  labs(fill = 'country sites', x = "", y = "") + 
+  theme_bw() + 
+  scale_x_continuous(limits=c(-12, 4)) + 
+  scale_y_continuous(limits=c(9.5, 25)) + 
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks = element_blank())
+
 
 ```
 

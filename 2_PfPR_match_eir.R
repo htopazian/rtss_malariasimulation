@@ -15,15 +15,18 @@ params <- get_parameters(list(
   # g0 = 0.285505,                              # low
   # g = c(-0.325352, -0.0109352, 0.0779865),    # low
   # h = c(-0.132815, 0.104675, -0.013919),      # low
-  g0 = 0.284596,                              # high
-  g = c(-0.317878, -0.0017527, 0.116455),     # high
-  h = c(-0.331361, 0.293128, -0.0617547),     # high
+  # g0 = 0.284596,                              # high
+  # g = c(-0.317878, -0.0017527, 0.116455),     # high
+  # h = c(-0.331361, 0.293128, -0.0617547),     # high
+  g0 = 2.951950,                                # mali
+  g = c(-3.568968, 0.19454587, 0.6171003),      # mali
+  h = c(-2.408349, 1.728442, -0.2147341),       # mali
   prevalence_rendering_min_ages = 2 * year,
   prevalence_rendering_max_ages = 10 * year,
   fvt = 0,
   v = 0,
-  # individual_mosquitoes = FALSE,
-  individual_mosquitoes = TRUE,
+  individual_mosquitoes = FALSE,
+  # individual_mosquitoes = TRUE,
   severe_enabled = T))
 
   # set species / drugs / treatment parameters
@@ -53,7 +56,7 @@ EIR <- lapply(
     mean(
       rowSums(
         output[
-          output$timestep %in% seq(4 * 365, 5 * 365),
+          output$timestep %in% seq(4 * 365, 5 * 365, 1),
           grepl('EIR_', names(output))
         ] / human_population * year
       )
@@ -88,6 +91,9 @@ EIR_prev <- cbind(init_EIR, unlist(EIR), unlist(prev)) %>%
 
 # saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds')    # low, individual_mosquitoes=F
 # saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds')   # high, individual_mosquitoes=F
+
+# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/mali_eirprev.rds')    # Mali
+# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/bf_eirprev.rds')   # Burkina Faso
 
 
 # PLOT RESULTS -----------------------------------------------------------------
