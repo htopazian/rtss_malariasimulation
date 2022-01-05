@@ -36,7 +36,7 @@ ee_Initialize(user='htopazian@gmail.com', drive=T) # Users/htopazian_earthengine
 
 # Start analysis ---------------------------------------------------------------
 # import spatial data
-admin0 <- readRDS("M:/Eradication/rds/admin0.RDS") %>% filter(Country %in% c('Mali', 'Burkina Faso', 'Senegal', 'Guinea', 'Mauritania', 'Algeria', 'Niger', "Côte d'Ivoire", 'Ghana', 'Togo', 'Benin', 'Nigeria', 'Sierra Leone', 'Morocco'))
+admin0 <- readRDS("M:/Eradication/rds/admin0.RDS") %>% filter(Country %in% c('Mali', 'Burkina Faso', 'Senegal', 'Guinea', 'Mauritania', 'Algeria', 'Niger', "Côte d'Ivoire", "CÃ´te d'Ivoire", 'Ghana', 'Togo', 'Benin', 'Nigeria', 'Sierra Leone', 'Morocco'))
 admin1 <- readRDS("M:/Eradication/rds/admin1.RDS") %>% filter(admin1 %in% c('Hauts-Bassins', 'Sikasso'))
 countries <- filter(admin0, Country %in% c('Mali', 'Burkina Faso')) 
 admin2 <- readRDS("M:/Eradication/rds/admin2.RDS") %>% 

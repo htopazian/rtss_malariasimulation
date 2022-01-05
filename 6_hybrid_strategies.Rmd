@@ -188,7 +188,7 @@ match %>% select(pfpr, eir, seasonality) %>%
 
 ## Plot seasonality and interventions
 
-**Figure 2a.** Clinical incidence output from `malariasimulation` runs over highly seasonal and seasonal settings for a variety of transmission intensities. Model runs include seasonality, treatment, and ITNS but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
+**Figure 2a.** Clinical incidence output from `malariasimulation` runs over highly seasonal and seasonal settings for a variety of transmission intensities. Model runs include seasonality and treatment treatment but no RTS,S or SMC interventions. Potential intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
 
 ```{r seasonalitymalariasimulation, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 # read in data from HPC runs
@@ -275,7 +275,9 @@ ggplot(output2) +
 
 ```
 
-**Figure 2b.** Clinical incidence output from `malariasimulation` runs over seasonal settings for a variety of transmission intensities. Seasonality profiles match those at study study sites in [Burkina Faso and Mali](https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1003214). Model runs include seasonality, treatment, and ITNs but no RTS,S or SMC interventions. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. 
+**Figure 2b.** Clinical incidence output from `malariasimulation` runs over seasonal settings for a variety of transmission intensities. Seasonality profiles match those at study study sites in [Burkina Faso and Mali](https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1003214). Model runs include seasonality and treatment but no RTS,S or SMC interventions. 
+
+The map below shows Matt C's study sites. I took rainfall data (Jan 2015 to Dec 2016) from the admin units where the study sites were located. The admin1 units are colored in blue and the admin2 units are outlined in black. Rainfall patterns were similar when run with admin1 and admin2. 
 
 ```{r mali BF, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 smcdat <- read_csv('./LSHTM_sites_SMC.csv') %>% 
@@ -381,7 +383,7 @@ first_m <- c((peak_season_offset(mali)/month) + c(-3,-2,-1,-1.5,-0.5,0.5,1.5)) %
          type = c(rep('RTS,S',3), rep('SMC',4)),
          seasonality = 'mali')
 
-vaxtimes <- rbind(first_bf, first_m)
+vaxtimes2 <- rbind(first_bf, first_m)
 
 # post-processing - just select one year from HPC output to plot seasonality
 dat2 <- dat %>% 
@@ -389,15 +391,15 @@ dat2 <- dat %>%
   filter(month<=12) %>%
   group_by(month, eir, model) %>%
   summarize(inc_month=sum(n_inc_clinical_0_1825 / n_0_1825, na.rm=T)) %>%
-  left_join(vaxtimes, by=c('model'='seasonality'))
+  left_join(vaxtimes2, by=c('model'='seasonality'))
 
 # plot
 ggplot(dat2) + 
   geom_line(aes(x=month, y=inc_month, color=as.factor(eir))) + 
-  geom_vline(data=. %>% filter(type=='RTS,S'), aes(xintercept=value, fill=type), color='white', lty=2, show.legend=T) + # dummy for legend
-  geom_vline(data=. %>% filter(type=='RTS,S'), aes(xintercept=value, fill=type), color='blue', lty=2, show.legend=F) +
-  geom_vline(data=. %>% filter(type=='SMC'), aes(xintercept=value, fill=type), color='red', lty=2, show.legend=F) +
-  geom_rect(data=. %>% filter(type=='SMC'), aes(xmin = value, xmax = value + 1, ymin = 0, ymax = 0.5), fill="red", alpha = 0.005, show.legend = F) +
+  # geom_vline(data=. %>% filter(type=='RTS,S'), aes(xintercept=value, fill=type), color='white', lty=2, show.legend=T) + # dummy for legend
+  # geom_vline(data=. %>% filter(type=='RTS,S'), aes(xintercept=value, fill=type), color='blue', lty=2, show.legend=F) +
+  # geom_vline(data=. %>% filter(type=='SMC'), aes(xintercept=value, fill=type), color='red', lty=2, show.legend=F) +
+  # geom_rect(data=. %>% filter(type=='SMC'), aes(xmin = value, xmax = value + 1, ymin = 0, ymax = 0.5), fill="red", alpha = 0.005, show.legend = F) +
   geom_line(data=smc15, aes(x=month, y=inc_month), color='black') + 
   geom_line(data=smc16, aes(x=month, y=inc_month), color='black') + 
   labs(x="Timesteps (month)",
@@ -473,7 +475,7 @@ table <- output %>% ungroup() %>%
   group_by(model, pfpr) %>% 
   mutate(age = paste0(age_low, '-', age_high), 
          s_cases = round(s_cases), 
-         s_cases = cell_spec(s_cases, background=ifelse(s_cases == max(s_cases), "cornflowerblue", 'white')),
+         s_cases = cell_spec(s_cases, background=ifelse(s_cases == max(s_cases), "lightblue", 'white')),
          model = ifelse(model=='high_seas', "highly seasonal", "seasonal")) %>%
   dplyr::select(model, pfpr, age, s_cases) %>%
   pivot_wider(names_from='age', values_from='s_cases') 
@@ -488,7 +490,7 @@ add_header_above(x, c("", "", "severe case counts by age group"=10))
 
 <br>
 
-**Figure 4.** Distribution of severe case counts by age and transmission setting. Intervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. Results are drawn from a baseline model which includes no RTS,S or SMC intervention.
+**Figure 4.** Distribution of severe case counts by age and transmission setting. Potential ntervention timings are shown via vertical dashed lines. RTS,S dose #3 (and booster dose #1) efficacy starts at month 4 for seasonal settings and month 6 for highly seasonal settings. SMC rounds are spaced so that they cover the high transmission season. Results are drawn from a baseline model which includes no RTS,S or SMC intervention.
 
 ```{r seasonal severe, message=FALSE, warning=FALSE, fig.width=7, fig.height=3, fig.align="center"}
 # read in data from HPC runs
@@ -697,7 +699,7 @@ x <- output2 %>%
   mutate(diff = round((cases - first(cases))),
          cases = ifelse(diff==0, cases, NA),
          cases = mean(cases, na.rm=T),
-         diff = cell_spec(diff, background=ifelse(diff == min(diff), "cornflowerblue", 'white')),
+         diff = cell_spec(diff, background=ifelse(diff == min(diff), "lightblue", 'white')),
          diff = ifelse(diff==0,'-',diff),
          seasonality = ifelse(seasonality=='highly_seasonal', "highly seasonal", "seasonal")) %>%
   pivot_wider(names_from = 'minwait', values_from = 'diff') %>%
@@ -847,8 +849,8 @@ output4 <- output3 %>%
                                   grepl('calendar',intervention)~'calendar-based'),
          case_avert = round(case_avert),
          case_avert_vax = round(case_avert / nvax, 2),
-         case_avert = cell_spec(case_avert, background=ifelse(case_avert == max(case_avert), "cornflowerblue", 'white')),
-         case_avert_vax = cell_spec(case_avert_vax, background=ifelse(case_avert_vax == max(case_avert_vax), "cornflowerblue", 'white')),
+         case_avert = cell_spec(case_avert, background=ifelse(case_avert == max(case_avert), "lightblue", 'white')),
+         case_avert_vax = cell_spec(case_avert_vax, background=ifelse(case_avert_vax == max(case_avert_vax), "lightblue", 'white')),
          seasonality=ifelse(seasonality=='highly_seasonal', 'highly seasonal', 'seasonal')) %>%
   select(-nvax) %>%
   pivot_wider(names_from=c(intervention, dose), values_from=c(case_avert, case_avert_vax)) 
