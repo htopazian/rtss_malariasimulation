@@ -1,7 +1,7 @@
 # Set-up ----------------------------------------------------------------------
 library(didehpc)
 setwd('M:/Hillary/rtss_malariasimulation')
-# remotes::install_github('mrc-ide/malariasimulation@feat/demography', force=T)
+# remotes::install_github('mrc-ide/malariasimulation@test/severe_demography', force=T)
 source('./1_functions.R')
 
 options(didehpc.cluster = "fi--didemrchnb",
@@ -15,7 +15,7 @@ root <- "context"
 sources <- c('./1_functions.R')
 
 # src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
-src <- conan::conan_sources("github::mrc-ide/malariasimulation@feat/demography")
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@test/severe_demography")
 
 ctx <- context::context_save(root,
                              sources = sources,
@@ -102,8 +102,8 @@ season <- c(rep('high_seas',4), rep('low_seas',4))
 # EIR_low <- c(1.2, 4.0, 8.7, 32.6) # malariasimulation, individual_mosquitoes=T
 # EIR_high <- c(1.61, 6.92, 13.7, 52.3) # malariasimulation, individual_mosquitoes=F
 # EIR_low <- c(1.51, 6.12, 12.1, 44.1) # malariasimulation, individual_mosquitoes=F
-EIR_high <- c(1.91, 7.62, 15.5, 57.7) # malariasimulation, individual_mosquitoes=F
-EIR_low <- c(1.71, 6.82, 13.4, 49.9) # malariasimulation, individual_mosquitoes=F
+EIR_high <- c(1.81, 7.72, 15.8, 57.7) # malariasimulation, individual_mosquitoes=F, w/ demography
+EIR_low <- c(1.81, 7.12, 14.7, 53.8) # malariasimulation, individual_mosquitoes=F, w/ demography
 
 starting_EIR <- c(EIR_high, EIR_low)
 
@@ -196,7 +196,7 @@ combo2 <- combo %>% cbind(shape, scale, boosters, booster_coverage, rtss_cs_boos
 
 t <- obj$enqueue_bulk(combo2, runsim_SMCSV)
 t$status()
-  
+
 # SV5 + SMC
 shape <- 3.67
 scale <- 41.48
@@ -316,7 +316,7 @@ dat2 <- dat %>%
   ungroup()
 
 saveRDS(dat2,"C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds")
-         
+
 none <- dat2 %>% filter(intervention == 'none') %>%
   rename(base_case = cases, 
          base_n = n_0_36500,
