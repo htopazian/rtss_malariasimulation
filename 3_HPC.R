@@ -1,7 +1,7 @@
 # Set-up ----------------------------------------------------------------------
 library(didehpc)
 setwd('M:/Hillary/rtss_malariasimulation')
-# remotes::install_github('mrc-ide/malariasimulation@feat/simple_severe', force=T)
+# remotes::install_github('mrc-ide/malariasimulation@feat/demography', force=T)
 source('./1_functions.R')
 
 options(didehpc.cluster = "fi--didemrchnb",
@@ -15,7 +15,7 @@ root <- "context"
 sources <- c('./1_functions.R')
 
 # src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
-src <- conan::conan_sources("github::mrc-ide/malariasimulation@feat/simple_severe")
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@feat/demography")
 
 ctx <- context::context_save(root,
                              sources = sources,
@@ -42,7 +42,7 @@ human_population <- 100000
 # highly seasonal parameters
 high_seas <- get_parameters(list(
   human_population = human_population,
-  average_age = 8453.323, # to match flat_demog
+  # average_age = 8453.323, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.284596, 
   g = c(-0.317878, -0.0017527, 0.116455),
@@ -51,16 +51,28 @@ high_seas <- get_parameters(list(
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
   clinical_incidence_rendering_max_ages = 100 * year,
-  # severe_incidence_rendering_min_ages = 0,
-  # severe_incidence_rendering_max_ages = 100 * year,
-  severe_incidence_rendering_min_ages = c(0,25)*year,
-  severe_incidence_rendering_max_ages = c(5,50)*year,
+  severe_incidence_rendering_min_ages = c(0,0,25)*year,
+  severe_incidence_rendering_max_ages = c(100,5,50)*year,
   individual_mosquitoes = FALSE))
+
+# set flat demography to match Haley's:
+# https://github.com/ht1212/seasonal_use_case/blob/main/Part_1/2_model_function.R#L44
+flat_demog <- read.table('./Flat_demog.txt') # from mlgts
+ages <- round(flat_demog$V3 * year) # top of age bracket
+deathrates <- flat_demog$V5 / 365 # age-specific death rates
+
+high_seas <- set_demography(
+  high_seas,
+  agegroups = ages,
+  timesteps = 1,
+  deathrates = matrix(deathrates, nrow = 1),
+  birthrates = find_birthrates(human_population, ages, deathrates)
+) 
 
 # seasonal parameters
 low_seas <- get_parameters(list(
   human_population = human_population,
-  average_age = 8453.323, # to match flat_demog
+  # average_age = 8453.323, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.285505, 
   g = c(-0.325352, -0.0109352, 0.0779865),
@@ -69,20 +81,29 @@ low_seas <- get_parameters(list(
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
   clinical_incidence_rendering_max_ages = 100 * year,
-  # severe_incidence_rendering_min_ages = 0,
-  # severe_incidence_rendering_max_ages = 100 * year,
-  severe_incidence_rendering_min_ages = c(0,25)*year,
-  severe_incidence_rendering_max_ages = c(5,50)*year,
+  severe_incidence_rendering_min_ages = c(0,0,25)*year,
+  severe_incidence_rendering_max_ages = c(100,5,50)*year,
   individual_mosquitoes = FALSE))
+
+low_seas <- set_demography(
+  low_seas,
+  agegroups = ages,
+  timesteps = 1,
+  deathrates = matrix(deathrates, nrow = 1),
+  birthrates = find_birthrates(human_population, ages, deathrates)
+) 
 
 params <- tibble(params=rep(list(high_seas,high_seas,high_seas,high_seas,
                                  low_seas,low_seas,low_seas,low_seas)))
 season <- c(rep('high_seas',4), rep('low_seas',4))
 
+# calculate from '2_PfPR_match_eir.R'
 # EIR_high <- c(1.1, 4.7, 10.1, 38.2) # malariasimulation, individual_mosquitoes=T
 # EIR_low <- c(1.2, 4.0, 8.7, 32.6) # malariasimulation, individual_mosquitoes=T
-EIR_high <- c(1.61, 6.92, 13.7, 52.3) # malariasimulation, individual_mosquitoes=F
-EIR_low <- c(1.51, 6.12, 12.1, 44.1) # malariasimulation, individual_mosquitoes=F
+# EIR_high <- c(1.61, 6.92, 13.7, 52.3) # malariasimulation, individual_mosquitoes=F
+# EIR_low <- c(1.51, 6.12, 12.1, 44.1) # malariasimulation, individual_mosquitoes=F
+EIR_high <- c(1.91, 7.62, 15.5, 57.7) # malariasimulation, individual_mosquitoes=F
+EIR_low <- c(1.71, 6.82, 13.4, 49.9) # malariasimulation, individual_mosquitoes=F
 
 starting_EIR <- c(EIR_high, EIR_low)
 

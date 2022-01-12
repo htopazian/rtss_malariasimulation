@@ -1,4 +1,5 @@
 library(malariasimulation)
+# remotes::install_github('mrc-ide/malariasimulation@test/severe_demography', force=T)
 library(tidyverse)
 library(mgcv)
 
@@ -10,24 +11,38 @@ human_population <- 100000
 
 params <- get_parameters(list(
   human_population = human_population,
-  average_age = 8453.323,     # to match flat_demog
+  # average_age = 8453.323,     # to match flat_demog
   model_seasonality = TRUE,   # assign seasonality
-  # g0 = 0.285505,                              # low
-  # g = c(-0.325352, -0.0109352, 0.0779865),    # low
-  # h = c(-0.132815, 0.104675, -0.013919),      # low
+  g0 = 0.285505,                              # low
+  g = c(-0.325352, -0.0109352, 0.0779865),    # low
+  h = c(-0.132815, 0.104675, -0.013919),      # low
   # g0 = 0.284596,                              # high
   # g = c(-0.317878, -0.0017527, 0.116455),     # high
   # h = c(-0.331361, 0.293128, -0.0617547),     # high
-  g0 = 2.951950,                                # mali
-  g = c(-3.568968, 0.19454587, 0.6171003),      # mali
-  h = c(-2.408349, 1.728442, -0.2147341),       # mali
+  # g0 = 2.951950,                                # mali
+  # g = c(-3.568968, 0.19454587, 0.6171003),      # mali
+  # h = c(-2.408349, 1.728442, -0.2147341),       # mali
   prevalence_rendering_min_ages = 2 * year,
   prevalence_rendering_max_ages = 10 * year,
-  fvt = 0,
-  v = 0,
   individual_mosquitoes = FALSE,
   # individual_mosquitoes = TRUE,
   severe_enabled = T))
+
+# set flat demography to match Haley's:
+# https://github.com/ht1212/seasonal_use_case/blob/main/Part_1/2_model_function.R#L44
+flat_demog <- read.table('./Flat_demog.txt') # from mlgts
+
+ages <- round(flat_demog$V3 * year) # top of age bracket
+
+deathrates <- flat_demog$V5 / 365 # age-specific death rates
+
+params <- set_demography(
+  params,
+  agegroups = ages,
+  timesteps = 1,
+  deathrates = matrix(deathrates, nrow = 1),
+  birthrates = find_birthrates(human_population, ages, deathrates)
+) 
 
   # set species / drugs / treatment parameters
 params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 

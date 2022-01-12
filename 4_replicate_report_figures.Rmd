@@ -1044,7 +1044,8 @@ baselineA <- baselineA %>%
   summarise(s05 = sum(s05, na.rm=T),
             s2550 = sum(s2550, na.rm=T)) %>% mutate(model='MalariaLaunchR') %>% ungroup() 
 
-baselineB <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/severe_test.rds') %>%
+baselineB <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_all.rds') %>%
+  filter(intervention == 'none') %>% 
   mutate(year=ceiling(timestep/365)) %>%
   rename(seasonality=season) %>%
   group_by(intervention, eir, seasonality, year) %>%

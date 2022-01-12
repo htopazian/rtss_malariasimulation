@@ -74,9 +74,17 @@ pd <- seasonality %>%
   tidyr::unnest(cols = c(profile)) %>%
   mutate(day = t * 365)
 
-ggplot(pd, aes(x = day, y = y, col = admin1)) +
-  geom_line() +
+rd <- seasonality %>%
+  select(admin1, rainfall_data) %>%
+  tidyr::unnest(cols = c(rainfall_data)) %>%
+  mutate(day = rep(seq(1,365*2,1),2))
+
+ggplot() +
+  geom_line(data=rd, aes(x = day, y = rainfall, col = admin1), alpha=0.2) +
+  geom_line(data=pd, aes(x = day, y = y, col = admin1)) +
+  geom_line(data=pd, aes(x = day+365, y = y, col = admin1)) +
+  facet_wrap(~admin1) + 
   xlab("Day") +
-  ylab("Precipitation") +
+  ylab("Precipitation (mm)") +
   theme_bw()
   
