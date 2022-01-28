@@ -1,183 +1,160 @@
-library(malariasimulation)
+library(didehpc)
+setwd('Q:/rtss_malariasimulation/')
+
+options(didehpc.cluster = "fi--didemrchnb",
+        didehpc.username = "htopazia")
+
+source('./1_functions.R')
+
 # remotes::install_github('mrc-ide/malariasimulation@test/severe_demography', force=T)
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
+
+ctx <- context::context_save(path = "Q:/contexts",
+                             sources = c('./1_functions.R'),
+                             packages = c("tidyverse", "malariasimulation"),
+                             package_sources = src)
+
+share <- didehpc::path_mapping('Home drive', "Q:", '//fi--san03.dide.ic.ac.uk/homes/htopazia', "M:")
+config <- didehpc::didehpc_config(shares = share,
+                                  use_rrq = FALSE,
+                                  cores = 1,
+                                  cluster = "fi--didemrchnb",
+                                  parallel = FALSE)
+
+obj <- didehpc::queue_didehpc(ctx, config = config)
+
+
+# Now set up your job ---------------------------------------------------------
 library(tidyverse)
-library(mgcv)
-
-# SET SEASONALITY --------------------------------------------------------------
-
-# parameters
 year <- 365
-human_population <- 100000
 
-params <- get_parameters(list(
-  human_population = human_population,
-  # average_age = 8453.323,     # to match flat_demog
-  model_seasonality = TRUE,   # assign seasonality
-  g0 = 0.285505,                              # low
-  g = c(-0.325352, -0.0109352, 0.0779865),    # low
-  h = c(-0.132815, 0.104675, -0.013919),      # low
-  # g0 = 0.284596,                              # high
-  # g = c(-0.317878, -0.0017527, 0.116455),     # high
-  # h = c(-0.331361, 0.293128, -0.0617547),     # high
-  # g0 = 2.951950,                                # mali
-  # g = c(-3.568968, 0.19454587, 0.6171003),      # mali
-  # h = c(-2.408349, 1.728442, -0.2147341),       # mali
-  prevalence_rendering_min_ages = 2 * year,
-  prevalence_rendering_max_ages = 10 * year,
-  individual_mosquitoes = FALSE,
-  # individual_mosquitoes = TRUE,
-  severe_enabled = T))
+# FIRST
+seas_name <- 'highly seasonal'
+seasonality <- list(c(0.284596,-0.317878,-0.0017527,0.116455,-0.331361,0.293128,-0.0617547))
+s1 <- crossing(seasonality, seas_name)
 
-# set flat demography to match Haley's:
-# https://github.com/ht1212/seasonal_use_case/blob/main/Part_1/2_model_function.R#L44
-flat_demog <- read.table('./Flat_demog.txt') # from mlgts
+# SECOND
+seas_name <- 'seasonal'
+seasonality <- list(c(0.285505,-0.325352,-0.0109352,0.0779865,-0.132815,0.104675,-0.013919))
+s2 <- crossing(seasonality, seas_name)
 
-ages <- round(flat_demog$V3 * year) # top of age bracket
-
-deathrates <- flat_demog$V5 / 365 # age-specific death rates
-
-params <- set_demography(
-  params,
-  agegroups = ages,
-  timesteps = 1,
-  deathrates = matrix(deathrates, nrow = 1),
-  birthrates = find_birthrates(human_population, ages, deathrates)
-) 
-
-  # set species / drugs / treatment parameters
-params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
-                      proportions = c(0.25, 0.25, 0.5))
-params <- set_drugs(params, list(AL_params))
-params <- set_clinical_treatment(params, 1, c(1), c(0.45))
-
-
-# RUN MODEL --------------------------------------------------------------------
+stable <- rbind(s1, s2)
 
 # loop over malariasimulation runs
-init_EIR <- c(0.01, 0.1, seq(1,9,1), seq(10, 100, by=5)) # set EIR values
-
-outputs <- lapply(
-  init_EIR,
-  function(init) {
-    p_i <- set_equilibrium(params, init)
-    run_simulation(5 * year, p_i)
-  }
-)
-
-# output EIR values
-EIR <- lapply(
-  outputs,
-  function(output) {
-    mean(
-      rowSums(
-        output[
-          output$timestep %in% seq(4 * 365, 5 * 365, 1),
-          grepl('EIR_', names(output))
-        ] / human_population * year
-      )
-    )
-  }
-)
-
-# output prev 2-10 values
-prev <- lapply(
-  outputs,
-  function(output) {
-    mean(
-      output[
-        output$timestep %in% seq(4 * 365, 5 * 365),
-        'n_detect_730_3650'
-      ] / output[
-        output$timestep %in% seq(4 * 365, 5 * 365),
-        'n_730_3650'
-      ]
-    )
-  }
-)
-
-# create dataframe of initial EIR, output EIR, and prev 2-10 results
-EIR_prev <- cbind(init_EIR, unlist(EIR), unlist(prev)) %>% 
-  as_tibble() %>% rename(EIR = V2, prev = V3)
+init_EIR <- c(seq(1,9,1), seq(10, 80, by=2)) # set EIR values
+combo <- crossing(stable, init_EIR) %>% mutate(name = paste0('EIR', "_", row_number()))
 
 
-# save data for later use
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowT.rds')    # low, individual_mosquitoes=T
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highT.rds')   # high, individual_mosquitoes=T
+# Run tasks -------------------------------------------------------------------
+combo <- combo %>% mutate(f = paste0("./rds/HPC/PR/",combo$name,".rds")) %>%
+  mutate(exist=case_when(file.exists(f) ~ 1, !file.exists(f) ~ 0)) %>%
+  filter(exist==0) %>%
+  select(-f, -exist)
 
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds')    # low, individual_mosquitoes=F
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds')   # high, individual_mosquitoes=F
-
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/mali_eirprev.rds')    # Mali
-# saveRDS(EIR_prev, 'C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/bf_eirprev.rds')   # Burkina Faso
-
-
-# PLOT RESULTS -----------------------------------------------------------------
-EIR_prev1 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_highF.rds') %>% mutate(season = 'high seasonality')
-
-EIR_prev2 <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/EIR_prev_lowF.rds') %>% mutate(season = 'low seasonality')
-
-EIR_prev <- rbind(EIR_prev1, EIR_prev2)
-
-# calculate EIR / prev 2-10 relationship from malariEquilibrium
-eir <- seq(from = .1, to = 100, by=.1)
-eq_params <- malariaEquilibrium::load_parameter_set("Jamie_parameters.rds")
-
-prev <- vapply( # calculate prevalence between 2:10 for a bunch of EIRs
-  eir,
-  function(eir) {
-    eq <- malariaEquilibrium::human_equilibrium(
-      eir,
-      ft=0,
-      p=eq_params,
-      age=0:100
-    )
-    sum(eq$states[2:10, 'pos_M']) / sum(eq$states[2:10, 'prop'])
-  },
-  numeric(1)
-)
-
-prevmatch <- as_tibble(cbind(eir,prev))
-
-colors <- c("malariaEquilibrium" = "blue", "malariasimulation" = "red")
+t <- obj$enqueue_bulk(combo, PRmatch)
+t$status()
 
 
-p <- ggplot(data=EIR_prev) + 
-  geom_point(aes(x=init_EIR, y=prev), color='black') + 
-  stat_smooth(aes(x=init_EIR, y=prev, color='malariasimulation'), method = 'gam', n=1000) + 
-  geom_line(data=prevmatch, aes(x=eir, y=prev, color = 'malariaEquilibrium')) + 
-  labs(x='initial EIR', y=expression(paste(italic(Pf),"PR"[2-10])), color='model') + 
-  facet_wrap('season', nrow=1) + 
-  scale_color_manual(values = colors) + 
+# RESULTS ----------------------------------------------------------------------
+library(data.table)
+library(fuzzyjoin)
+files <- list.files(path = "./rds/HPC/PR", pattern = "*.rds", full.names = TRUE)
+dat_list <- lapply(files, function (x) readRDS(x))
+EIR_prev <-  do.call("rbind", dat_list) %>% as_tibble() %>%
+  mutate(init_EIR = as.numeric(init_EIR),
+         prev = as.numeric(prev))
+
+p <- ggplot(data=EIR_prev) +
+  geom_point(aes(x=init_EIR, y=prev), color='black') +
+  stat_smooth(aes(x=init_EIR, y=prev), color='red', method = 'gam', n=1000) +
+  labs(x='initial EIR', y=expression(paste(italic(Pf),"PR"[2-10]))) +
+  facet_wrap('seas_name', nrow=6, ncol=4) +
   theme_classic()
 
 p
 
 
 # MATCH EIR AND PfPR -----------------------------------------------------------
-
 # extract points from stat_smooth
 p2 <- ggplot_build(p)
 p2 <- p2$data[[2]]
 
-p2 <- p2 %>% as_tibble() %>% select(x,y,PANEL) %>% rename(init_EIR=x, pred=y, season=PANEL) %>%
-  mutate(season=ifelse(season==1,'high seasonality','low seasonality'))
+pnames <- EIR_prev %>% select(seas_name) %>% distinct() %>% arrange(seas_name) %>% mutate(PANEL=row_number())
 
+p2 <- p2 %>% as_tibble() %>% select(x,y,PANEL) %>% rename(init_EIR=x, pred=y) %>%
+  mutate(PANEL = as.numeric(PANEL)) %>%
+  left_join(pnames, by='PANEL')
 
-# Pre-intervention baseline PfPR2-10 starting at values 10, 25, 35, 55 
+# Pre-intervention baseline PfPR2-10
 PfPR <- as_tibble_col(c(.10, .25, .35, .55), column_name="pfpr")
-
- # match via points
-PfPR %>%
-  fuzzyjoin::difference_left_join(EIR_prev, by=c("pfpr"="prev"), 
-                                  max_dist=1, distance_col="dist") %>%
-  group_by(pfpr, season) %>% slice_min(dist)
 
 
 # match via stat_smooth predictions
-PfPR %>%
-  fuzzyjoin::difference_left_join(p2, by=c("pfpr"="pred"), 
+match <- PfPR %>%
+  fuzzyjoin::difference_left_join(p2, by=c("pfpr"="pred"),
                                   max_dist=1, distance_col="dist") %>%
-  group_by(pfpr, season) %>% slice_min(dist)
+  group_by(pfpr, seas_name) %>% slice_min(dist)
 
-# 
+match <- match %>% rename(starting_EIR = init_EIR) %>%
+  select(pfpr, starting_EIR, seas_name)
+
+saveRDS(match, "./rds/PR_EIRmatch.rds")
+
+
+# test w/ malariasimulation run ------------------------------------------------
+seas_name <- 'highly seasonal'
+seasonality <- list(c(0.284596,-0.317878,-0.0017527,0.116455,-0.331361,0.293128,-0.0617547))
+init_EIR <- 20
+
+  year <- 365
+  month <- year/12
+  human_population <- 10000
+  
+  params <- get_parameters(list(
+    human_population = human_population,
+    model_seasonality = TRUE,   # assign seasonality
+    g0 = unlist(seasonality)[1],
+    g = unlist(seasonality)[2:4],
+    h = unlist(seasonality)[5:7],
+    prevalence_rendering_min_ages = 2 * year,
+    prevalence_rendering_max_ages = 10 * year,
+    individual_mosquitoes = FALSE))
+  
+  flat_demog <- read.table('./Flat_demog.txt') # from mlgts
+  ages <- round(flat_demog$V3 * year) # top of age bracket
+  deathrates <- flat_demog$V5 / 365 # age-specific death rates
+  params <- set_demography(
+    params,
+    agegroups = ages,
+    timesteps = 1,
+    deathrates = matrix(deathrates, nrow = 1),
+    birthrates = find_birthrates(human_population, ages, deathrates)
+  )
+  
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params),
+                        proportions = c(0.25, 0.25, 0.5))
+  
+  params <- set_drugs(params, list(AL_params, SP_AQ_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  params <- set_equilibrium(params, as.numeric(init_EIR))
+  
+  output <- run_simulation(
+    timesteps = 10 * year,
+    parameters = params,
+    correlations = NULL)
+  
+  prev <-
+    mean(
+      output[
+        output$timestep %in% seq(9 * 365, 10 * 365),
+        'n_detect_730_3650'
+      ] / output[
+        output$timestep %in% seq(9 * 365, 10 * 365),
+        'n_730_3650'
+      ]
+    )
+  
+
+output %>% filter(timestep %in% seq(9*year, 10*year)) %>% summarize(PfPR = mean(n_detect_730_3650/n_730_3650))
 

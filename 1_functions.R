@@ -17,6 +17,69 @@ plotfun <- function(data,model){
     theme_classic()
 }
 
+
+# EIR PR match ----------------------------------------------------------------
+PRmatch <- function(seasonality, seas_name, init_EIR, name){
+  # parameters
+  year <- 365
+  month <- year/12
+  human_population <- 100000
+  
+  params <- get_parameters(list(
+    human_population = human_population,
+    model_seasonality = TRUE,   # assign seasonality
+    g0 = unlist(seasonality)[1],
+    g = unlist(seasonality)[2:4],
+    h = unlist(seasonality)[5:7],
+    prevalence_rendering_min_ages = 2 * year,
+    prevalence_rendering_max_ages = 10 * year,
+    individual_mosquitoes = FALSE))
+  
+  flat_demog <- read.table('./Flat_demog.txt') # from mlgts
+  ages <- round(flat_demog$V3 * year) # top of age bracket
+  deathrates <- flat_demog$V5 / 365 # age-specific death rates
+  params <- set_demography(
+    params,
+    agegroups = ages,
+    timesteps = 1,
+    deathrates = matrix(deathrates, nrow = 1),
+    birthrates = find_birthrates(human_population, ages, deathrates)
+  )
+  
+  params <- set_species(params, species = list(arab_params, fun_params, gamb_params),
+                        proportions = c(0.25, 0.25, 0.5))
+  
+  params <- set_drugs(params, list(AL_params))
+  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  
+  params <- set_equilibrium(params, as.numeric(init_EIR))
+  
+  output <- run_simulation(
+    timesteps = 10 * year,
+    parameters = params,
+    correlations = NULL)
+
+  
+  # output prev 2-10 values
+  prev <-
+    mean(
+      output[
+        output$timestep %in% seq(9 * 365, 10 * 365),
+        'n_detect_730_3650'
+      ] / output[
+        output$timestep %in% seq(9 * 365, 10 * 365),
+        'n_730_3650'
+      ]
+    )
+  
+  # create dataframe of initial EIR, output EIR, and prev 2-10 results
+  EIR_prev <- cbind(seas_name, init_EIR, prev)
+  
+  saveRDS(EIR_prev, paste0('./rds/HPC/PR/', name,'.rds'))
+  
+}
+
+
 # no intervention -------------------------------------------------------------
 runsim_none <- function(params, starting_EIR, warmup, sim_length, season){
   year <- 365
@@ -24,11 +87,9 @@ runsim_none <- function(params, starting_EIR, warmup, sim_length, season){
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params))
-  params <- set_clinical_treatment(params, 1, c(1), c(0.45))
+  params <- set_clinical_treatment(params, 1, c(1), 0.45)
   params <- set_equilibrium(params, starting_EIR)
   output <- run_simulation(warmup + sim_length, params) %>% 
     mutate(eir=starting_EIR, 
@@ -46,8 +107,6 @@ runsim_epi <- function(params, starting_EIR, warmup, sim_length, season){
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
@@ -83,8 +142,6 @@ runsim_SV <- function(params, starting_EIR, warmup, sim_length, season, boosters
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
@@ -122,8 +179,6 @@ runsim_SMC <- function(params, starting_EIR, warmup, sim_length, season, shape, 
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params, SP_AQ_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
@@ -160,8 +215,6 @@ runsim_SMCEPI <- function(params, starting_EIR, warmup, sim_length, season, shap
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params, SP_AQ_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
@@ -212,8 +265,6 @@ runsim_SMCSV <- function(params, starting_EIR, warmup, sim_length, season, shape
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params, SP_AQ_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
@@ -271,8 +322,6 @@ runsim_hybrid <- function(params, minwait, starting_EIR, warmup, sim_length, sea
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))
@@ -316,8 +365,6 @@ runsim_severe <- function(params, starting_EIR, warmup, sim_length, season){
   
   params <- set_species(params, species = list(arab_params, fun_params, gamb_params), 
                         proportions = c(0.25, 0.25, 0.5))
-  params$phi_bednets <- c(0.9, 0.9, 0.89) 
-  params$phi_indoors <- c(0.96, 0.98, 0.97)
   
   params <- set_drugs(params, list(AL_params))
   params <- set_clinical_treatment(params, 1, c(1), c(0.45))

@@ -1,28 +1,23 @@
 # Set-up ----------------------------------------------------------------------
 library(didehpc)
-setwd('M:/Hillary/rtss_malariasimulation')
-# remotes::install_github('mrc-ide/malariasimulation@test/severe_demography', force=T)
-source('./1_functions.R')
+setwd('Q:/rtss_malariasimulation/')
+# remotes::install_github('mrc-ide/malariasimulation@dev', force=T)
 
 options(didehpc.cluster = "fi--didemrchnb",
         didehpc.username = "htopazia")
 
 didehpc::didehpc_config() 
-didehpc::web_login()
-
-root <- "context" 
 
 sources <- c('./1_functions.R')
 
-# src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
-src <- conan::conan_sources("github::mrc-ide/malariasimulation@test/severe_demography")
+src <- conan::conan_sources("github::mrc-ide/malariasimulation@dev")
 
-ctx <- context::context_save(root,
+ctx <- context::context_save(path = "Q:/contexts",
                              sources = sources,
                              packages = c("tidyverse", "malariasimulation"),
                              package_sources = src)
 
-share <- didehpc::path_mapping("malaria", "M:", "//fi--didef3.dide.ic.ac.uk/malaria", "M:")
+share <- didehpc::path_mapping('Home drive', "Q:", '//fi--san03.dide.ic.ac.uk/homes/htopazia', "M:")
 config <- didehpc::didehpc_config(shares = share,
                                   use_rrq = FALSE,
                                   cores = 1, 
@@ -37,16 +32,17 @@ year <- 365
 month <- year/12
 warmup <- 20 * year
 sim_length <- 15 * year
-human_population <- 100000
+human_population <- 50000
 
 # highly seasonal parameters
 high_seas <- get_parameters(list(
   human_population = human_population,
-  # average_age = 8453.323, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.284596, 
   g = c(-0.317878, -0.0017527, 0.116455),
   h = c(-0.331361, 0.293128, -0.0617547),
+  prevalence_rendering_min_ages = 2 * year,
+  prevalence_rendering_max_ages = 10 * year,
   incidence_rendering_min_ages = 0,
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
@@ -72,11 +68,12 @@ high_seas <- set_demography(
 # seasonal parameters
 low_seas <- get_parameters(list(
   human_population = human_population,
-  # average_age = 8453.323, # to match flat_demog
   model_seasonality = TRUE, 
   g0 = 0.285505, 
   g = c(-0.325352, -0.0109352, 0.0779865),
   h = c(-0.132815, 0.104675, -0.013919),
+  prevalence_rendering_min_ages = 2 * year,
+  prevalence_rendering_max_ages = 10 * year,
   incidence_rendering_min_ages = 0,
   incidence_rendering_max_ages = 100 * year,
   clinical_incidence_rendering_min_ages = 0,
@@ -95,15 +92,13 @@ low_seas <- set_demography(
 
 params <- tibble(params=rep(list(high_seas,high_seas,high_seas,high_seas,
                                  low_seas,low_seas,low_seas,low_seas)))
+
 season <- c(rep('high_seas',4), rep('low_seas',4))
 
 # calculate from '2_PfPR_match_eir.R'
-# EIR_high <- c(1.1, 4.7, 10.1, 38.2) # malariasimulation, individual_mosquitoes=T
-# EIR_low <- c(1.2, 4.0, 8.7, 32.6) # malariasimulation, individual_mosquitoes=T
-# EIR_high <- c(1.61, 6.92, 13.7, 52.3) # malariasimulation, individual_mosquitoes=F
-# EIR_low <- c(1.51, 6.12, 12.1, 44.1) # malariasimulation, individual_mosquitoes=F
-EIR_high <- c(1.81, 7.72, 15.8, 57.7) # malariasimulation, individual_mosquitoes=F, w/ demography
-EIR_low <- c(1.81, 7.12, 14.7, 53.8) # malariasimulation, individual_mosquitoes=F, w/ demography
+match <- readRDS("./rds/PR_EIRmatch.rds") %>% ungroup() 
+EIR_high <- c(match$starting_EIR[[1]], match$starting_EIR[[3]], match$starting_EIR[[5]], match$starting_EIR[[7]])
+EIR_low <- c(match$starting_EIR[[2]], match$starting_EIR[[4]], match$starting_EIR[[6]], match$starting_EIR[[8]])
 
 starting_EIR <- c(EIR_high, EIR_low)
 
