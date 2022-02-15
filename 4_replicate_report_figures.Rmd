@@ -101,7 +101,7 @@ I have checked -
 
 `MalariaLanchR` accepts PfPR<sub>2-10</sub> values as inputs to set the model at an equilibrium value. But `malariasimulation` only accepts EIR value inputs using the function `set_equilibrium()`. We will use a range of `malariasimulation` outputs to back link PfPR<sub>2-10</sub> values to EIR outputs using `fuzzyjoin`. Separate matching processes must take place for each seasonality setting. Essentially, we set our baseline parameters, and then run multiple simulations at various EIRs using those baseline settings. We then create a best-fit line through these points, and match with PfPR<sub>2-10</sub>. The blue line in the following plots displays results from `malariaEquilibrium`, which end up underestimating the EIRs to be used in the model.
 
-``` {r prevmatch, message=FALSE, warning=FALSE}
+``` {r prevmatch, message=FALSE, warning=FALSE, eval=F}
 # loop over malariasimulation runs
 init_EIR <- c(0.01, 0.1, seq(1,9,1), seq(10, 100, by=5)) # set EIR values
 
@@ -150,7 +150,7 @@ p
 p2 <- ggplot_build(p)
 p2 <- p2$data[[2]]
 
-p2 <- p2 %>% as_tibble() %>% select(x,y,PANEL) %>% rename(init_EIR=x, pred=y, season=PANEL) %>%
+p2 <- p2 %>% as_tibble() %>% dplyr::select(x,y,PANEL) %>% rename(init_EIR=x, pred=y, season=PANEL) %>%
   mutate(season=ifelse(season==1,'high seasonality','low seasonality'))
 
 
@@ -163,7 +163,7 @@ match <- PfPR %>%
                                   max_dist=1, distance_col="dist") %>%
   group_by(pfpr, season) %>% slice_min(dist) %>% 
   rename(eir=init_EIR) %>% 
-  mutate(eir = as.numeric(signif(eir,3)), seasonality=case_when(season=='high seasonality'~'highly_seasonal', TRUE~'seasonal')) %>% ungroup() %>% select(-season)
+  mutate(eir = as.numeric(signif(eir,3)), seasonality=case_when(season=='high seasonality'~'highly_seasonal', TRUE~'seasonal')) %>% ungroup() %>% dplyr::select(-season)
 
 match
 
@@ -292,7 +292,7 @@ da_fvp <-
 output <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github/rtss_malariasimulation/rds/rtss_smc_averted.rds')
 
 fig1dat <- output %>% 
-  left_join(match %>% select(pfpr, eir)) %>% 
+  left_join(match %>% dplyr::select(pfpr, eir)) %>% 
   filter(!grepl('SMC',intervention))
 
 seas.labs <- c("Highly Seasonal", "Seasonal")
@@ -468,7 +468,7 @@ da <-
 # malariasimulation ---------------------------------------------------------
 
 fig2dat <- output %>% 
-  left_join(match %>% select(pfpr, eir)) %>% 
+  left_join(match %>% dplyr::select(pfpr, eir)) %>% 
   filter(grepl('SMC',intervention))
 
 seas.labs <- c("Highly Seasonal", "Seasonal")
@@ -553,14 +553,14 @@ C <- A %>% full_join(B) %>%
       run=="srtss_4_dose_param_mod_smc" ~ "SV 4-dose synergy + SMC", 
       run=="srtss_5_dose_param_mod_smc" ~ "SV 5-dose synergy + SMC",
       run=="smc" ~ "SMC alone")) %>%
-   select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) 
+   dplyr::select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) 
 
 D <- output %>% ungroup() %>%
-  left_join(match %>% select(pfpr, eir)) %>% 
+  left_join(match %>% dplyr::select(pfpr, eir)) %>% 
   mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr)) %>%
   mutate(seasonality = season,
          number_fvp = dosecomplete) %>%
-  select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) %>%
+  dplyr::select(intervention, pfpr, seasonality, cases, deaths, cases_averted, deaths_averted, cases_averted_per_100000_fvp, number_fvp) %>%
   rename(cases2=cases, deaths2=deaths, ca=cases_averted, da=deaths_averted, cafvp=cases_averted_per_100000_fvp, nfvp=number_fvp)
 
 tabledat <- C %>% full_join(D)
@@ -680,6 +680,14 @@ Now we will directly compare model outputs from `malariasimulation` to `MalariaL
 
 ```{r baseline, message=FALSE, warning=FALSE, fig.width=7, fig.height=10}
 #-New facet label names for seas variables--
+
+eir <- c(2.19, 9.47, 20.5, 75, 1.81, 7.74, 15.8, 61.3)
+pfpr <- rep(c(.10, .25, .35, .55), 2)
+season <- c(rep('highly_seasonal',4), rep('seasonal',4))
+
+match <- data.frame(eir, pfpr, season) 
+  
+
 seas.labs <- c("Highly Seasonal", "Seasonal")
 names(seas.labs) <- c("highly_seasonal", "seasonal")
 
@@ -738,7 +746,7 @@ baselineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Githu
             severe = sum(severe_p, na.rm=T),
             deaths = sum(deaths_p, na.rm=T),
             model='malariasimulation') %>% ungroup() %>%
-  left_join(match %>% select(pfpr, eir))
+  left_join(match %>% dplyr::select(pfpr, eir))
 
 data <- baselineA %>% filter(run == "baseline") %>% full_join(baselineB %>% filter(intervention == 'none'))
 
@@ -827,7 +835,7 @@ immunity <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github
          iva_mean = mean(iva_mean, na.rm=T), 
          ivm_mean = mean(ivm_mean, na.rm=T)) %>%
   rename(seasonality=season) %>%
-  left_join(match %>% select(pfpr, eir)) %>% filter(intervention == "none")
+  left_join(match %>% dplyr::select(pfpr, eir)) %>% filter(intervention == "none")
 
 seas.labs <- c("Highly Seasonal", "Seasonal")
 names(seas.labs) <- c("highly_seasonal", "seasonal")
@@ -873,7 +881,7 @@ vaccineA <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Github
   dplyr::mutate(
     num_vacc_doses = c(0, diff(num_vacc_doses / 3)),
     num_trt        = c(0, diff(num_trt /3))) %>% 
-   select(run, pfpr, seasonality, draw, coverage, year, num_vacc_doses,  num_trt) %>%
+   dplyr::select(run, pfpr, seasonality, draw, coverage, year, num_vacc_doses,  num_trt) %>%
   filter(year > 0) %>%
   filter(coverage %in% c(0.8,0)) %>%
   filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>%
@@ -900,7 +908,7 @@ vaccineB <- readRDS("C:/Users/htopazia/OneDrive - Imperial College London/Github
   group_by(intervention, eir, seasonality, year) %>%
   summarize(dose3 = sum(dose3, na.rm=T),
             model='malariasimulation') %>%
-  left_join(match %>% select(pfpr, eir)) %>% 
+  left_join(match %>% dplyr::select(pfpr, eir)) %>% 
   mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr))
 
 # plots
@@ -1040,7 +1048,7 @@ baselineA <- baselineA %>%
   summarise(severe = sum(severe, na.rm=T)) %>%
   filter(pfpr %in% c(0.1,0.25,0.35,0.55)) %>%
   mutate(s05 = ifelse(under5==1, severe, NA),
-         s2550 = ifelse(under5==0, severe, NA)) %>% select(-under5) %>%
+         s2550 = ifelse(under5==0, severe, NA)) %>% dplyr::select(-under5) %>%
   summarise(s05 = sum(s05, na.rm=T),
             s2550 = sum(s2550, na.rm=T)) %>% mutate(model='MalariaLaunchR') %>% ungroup() 
 
@@ -1051,7 +1059,7 @@ baselineB <- readRDS('C:/Users/htopazia/OneDrive - Imperial College London/Githu
   group_by(intervention, eir, seasonality, year) %>%
   summarize(s05 = sum(p_inc_severe_0_1825, na.rm=T),
             s2550 = sum(p_inc_severe_9125_18250, na.rm=T)) %>%
-  left_join(match %>% select(pfpr, eir)) %>% 
+  left_join(match %>% dplyr::select(pfpr, eir)) %>% 
   mutate(pfpr = ifelse(is.na(pfpr), .55, pfpr), model = 'malariasimulation')
 
 dat <- baselineA %>% filter(run == "baseline") %>% full_join(baselineB %>% filter(intervention == 'none'))
